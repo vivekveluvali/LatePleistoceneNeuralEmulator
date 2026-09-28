@@ -1,0 +1,25 @@
+# Python / OS clutter
+__pycache__/
+*.pyc
+.DS_Store
+.ipynb_checkpoints/
+
+# model weights
+*.h5
+
+# intermediate arrays
+*.npy
+
+# derived data: regenerate from scripts or find using OBS_README
+Data/ModelOutput/
+Data/Plots/
+Data/InterpolatedObs/
+Data/Observations/
+Data/SM90/
+Data/SM90_altstep/
+
+# manual backups (git replaces these)
+Archive/_backup_*/
+
+# scratch
+Claude outputs/
