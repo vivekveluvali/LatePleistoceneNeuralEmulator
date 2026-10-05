@@ -7,6 +7,8 @@ import tensorflow as tf
 import multitaper as mt
 from scipy import stats
 
+from obs import select_data, AGE_COL, NAMES, VAR_COL
+
 MAPPINGS = ["X","Y","Z"]
 
 def LossPlots(history, phys_check):
@@ -333,3 +335,27 @@ def frequency_spectra(model, data, window_size, timestep = 1, spec_var = 0, nw =
     plt.show()
 
     return results
+
+def plot_resolution(ax, source, color):
+    '''
+        ax      -   matplotlib axis to plot on
+        source  -   a DATAFOLDER/NAMES key (see obs.py), e.g. "ch4_EDC"
+        color   -   color palette to use
+
+        plots sample spacing vs. age for one observational source, to show
+        how temporal resolution varies/degrades with age
+
+        returns the mean spacing between samples and the number of samples
+    '''
+    age_sorted = select_data(source)[AGE_COL]
+    color = color
+    spacing = np.diff(age_sorted)  # kyr between consecutive samples
+    ax.plot(age_sorted[1:], spacing, '.', markersize=3, color=color, alpha=0.6)
+    ax.set_yscale('log')
+    ax.set_xlabel("Age [ka BP]")
+    ax.set_ylabel("Sample spacing [kyr] (log scale)")
+    ax.set_title(f"{source}: mean spacing = {np.mean(spacing):.2f} kyr, n = {len(age_sorted)}")
+
+    plt.show()
+
+    return np.mean(spacing), len(age_sorted)

@@ -61,6 +61,17 @@ DATASETS = {
     },
 }
 
+COLORS = {
+    "EDC":        "#D6195E",
+    "Eld": "#1E88E5",
+    "LR04":       "#2C754B",
+    "Hon":    "#FB8C00",
+    "Yam":      "#6519C5",
+    "insol":"coral",
+    "X":"lightskyblue",
+    "Y":"slategrey",
+    "Z":"limegreen",
+}
 
 # ----------------------------------------------------------------------------
 # configuration
@@ -85,15 +96,18 @@ def make_config(dataset, seed=42, params=None, test_frac=0.2, train_frac=0.8, te
     cfg = {
         'dataset': dataset,
         'csv': DATASETS[dataset]['csv'],
+
         'params': params,
         'seed': int(seed),
         'test_frac': float(test_frac),
         'train_frac': float(train_frac),
         'test_size': None if test_size is None else int(test_size),
         'timestep': timestep,
+
         'window_size': int(window_kyr / timestep),
         'rollout_length': int(rollout_kyr / timestep),
         'rollout_length_validation': int(vali_rollout_kyr / timestep),
+
         'noise_level': noise_level,
         'acf_threshold': acf_threshold,
         'epochs': epochs,
