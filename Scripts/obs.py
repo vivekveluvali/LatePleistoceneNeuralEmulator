@@ -63,6 +63,7 @@ NAMES = {
 }
 
 CUTOFF = 4000 # in ka, originally in 10ka
+TIME_UNIT = 10 # in ka; for SM90 integration, which works in 10ka units
 print('variables established')
 
 def select_data(name):
@@ -88,7 +89,7 @@ def SM90(t,system,R,n=0):
     n      - statistical forcing (e.g. normally distributed noise) 
     """
 
-    X_t, Y_t, Z_t, R_t = system[0], system[1], system[2], R(CUTOFF-t)
+    X_t, Y_t, Z_t, R_t = system[0], system[1], system[2], R(CUTOFF-TIME_UNIT*t)
 
     # random variable for noise inclusion if noise is non-yero
     b = random.choice([True, False])
@@ -109,9 +110,14 @@ def SM90(t,system,R,n=0):
     return np.array([dX_dt, dY_dt, dZ_dt])
 
 def create_SM90(dt = 1, system_0 = np.array([-1.0,0,1])):
+    '''
+        dt        -  output spacing in ka
+        system_0  -  initial (X, Y, Z) at the oldest age, CUTOFF
+
+        model time t runs forward from CUTOFF ka in units of TIME_UNIT (10 ka), so age = CUTOFF - TIME_UNIT*t
+    '''
     i = select_data('insol')
-    R_Df = i[i[AGE_COL]<=CUTOFF].copy()
-    #R_Df[AGE_COL] *= 1e-1 -- I don't think I need to use this since I'm staying in units of ka rather than 10ka
+    R_Df = i[i[AGE_COL]<=CUTOFF].copy()  # ages stay in ka; SM90() converts model time to age before calling R
     R_Df = R_Df[::-1]
 
     # scaling insolation to mean of 0 and variance of 1 in accordance with SM90
@@ -127,17 +133,21 @@ def create_SM90(dt = 1, system_0 = np.array([-1.0,0,1])):
         fill_value=0.0
     )
 
-    # simulation time range
-    t = np.arange(0,CUTOFF,dt)
+    # output ages in ka (exact, so they merge cleanly with other 1 ka tables), oldest first,
+    # and the matching model times in TIME_UNIT units
+    age = CUTOFF - np.arange(0, CUTOFF + dt, dt)  # CUTOFF ... 0 ka, endpoints included
+    t = (CUTOFF - age) / TIME_UNIT
 
     # numerical solver
-    sol = solve_ivp(SM90,t_span=[0,CUTOFF],y0=system_0,t_eval=t,args=(R_forcing,0))
+    sol = solve_ivp(SM90,t_span=[0,CUTOFF/TIME_UNIT],y0=system_0,t_eval=t,args=(R_forcing,0))
+
+    # insolation stored at each row's age = the forcing that drove that step
     return pd.DataFrame({
-        AGE_COL: sol.t,
+        AGE_COL: age,
         'X': sol.y[0, :],
         'Y': sol.y[1, :],
         'Z': sol.y[2, :],
-        NAMES['insol']: R_forcing(sol.t),
+        NAMES['insol']: R_forcing(age),
     })
 
 def gp_reg(source):
@@ -159,9 +169,7 @@ def gp_reg(source):
         gpr = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=5, normalize_y=True)
     gpr.fit(x.reshape(-1, 1), y)
 
-    # Predict on the fine grid
-    y_fine, y_std = gpr.predict(x_fine.reshape(-1, 1), return_std=True)
-    return pd.DataFrame({AGE_COL: x_fine, NAMES[source]: y_fine, VAR_COL: y_std ** 2})
+    return gpr
 
 print('functions defined')
 
@@ -174,15 +182,19 @@ if __name__ == "__main__":
     print('constructing Gaussian process regression')
     for name in NAMES:
         if name == 'insol':
-            continue
-        columns = gp_reg(name).rename(columns={VAR_COL: f'{VAR_COL}_{name}'})
+            continue    
+        x_fine = np.arange(0, select_data(name)[AGE_COL].max() + 1, 1.0)  # 1 ka grid
+        y_fine, y_std = gp_reg(name).predict(x_fine.reshape(-1, 1), return_std=True)
+        columns = pd.DataFrame({AGE_COL: x_fine, name: y_fine, f'{VAR_COL}_{name}': y_std ** 2})
         outfile = pd.merge(outfile, columns, on=AGE_COL, how='outer')
+
     outfile = outfile.sort_values(AGE_COL).reset_index(drop=True)
+    outfile.to_csv(f'{PROJECT}/Data/InterpolatedObs/gpr_{outfile[AGE_COL].max()}kaBP.csv')
 
     print('GPR exported, now constructing SM90 trajectory')
     sm90_out = create_SM90()
 
     print('SM90 trajectory constructed, exporting data')
     sm90_out.to_csv(f'{PROJECT}/Data/SM90/sm90.csv')
-    outfile.to_csv(f'{PROJECT}/Data/InterpolatedObs/gpr_{outfile[AGE_COL].max()}kaBP.csv')
 
+    
