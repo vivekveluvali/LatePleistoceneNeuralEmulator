@@ -1,0 +1,55 @@
+{
+  "dataset": "1461ka",
+  "insol": "insol_huy06",
+  "max_age": 1461.0,
+  "params": {
+    "conv filters": 16,
+    "conv kernel": 9,
+    "dense unit": 21,
+    "dropout rate": 0.24199127728779032,
+    "learning rate": 0.0008599275973935869,
+    "dwt gamma": 0.4016606625962723,
+    "dwt beta": 0.4538313866456523,
+    "dwt eps": 1.5028933889868065e-06,
+    "dwt levels": 2
+  },
+  "seed": 42,
+  "test_frac": 0.2,
+  "train_frac": 0.8,
+  "test_size": null,
+  "timestep": 1,
+  "window_size": 50,
+  "rollout_length": 32,
+  "rollout_length_validation": 128,
+  "noise_level": 0.01,
+  "acf_threshold": 0.97,
+  "epochs": 100,
+  "batch_size": 64,
+  "run_tag": "1461ka_seed42_291ca5da",
+  "scaler_mean": [
+    4.1096968680839145,
+    223.24240039442563,
+    0.017957923705919508,
+    6.756420320855615
+  ],
+  "scaler_scale": [
+    0.4020738832730562,
+    20.92346584212452,
+    0.6614924152299265,
+    0.04834178465067832
+  ],
+  "split_ages": {
+    "test": [
+      1461.0,
+      1170.0
+    ],
+    "train": [
+      1168.0,
+      234.0
+    ],
+    "validation": [
+      233.0,
+      0.0
+    ]
+  }
+}
