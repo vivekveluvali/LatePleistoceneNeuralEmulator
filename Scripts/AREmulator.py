@@ -17,7 +17,7 @@ class RolloutEmulator(tf.keras.Model):
     """
     def __init__(self,brain,rollout_length,vali_rollout_length,window_size,n_features,
                  L_2_weight=1.0,dwt_gamma=0.5,dwt_beta=0.3,dwt_eps=1e-6,dwt_levels=3,
-                 noise_level=1e-2):
+                 noise_level=1e-2,gp_noise_scale=1.0,vali_gp_noise=False):
         """
         initializer method for the rollout trainig class
         ------------------------------------------------
@@ -35,6 +35,11 @@ class RolloutEmulator(tf.keras.Model):
         noise_level         - standard deviation of normally distributed noise used for noise injection during training.
                               NOTE: train_step is a tf.function, so this value is baked in when it is first
                               traced (first .fit call); set it here rather than changing it afterwards.
+        gp_noise_scale      - multiplier on the GPR-uncertainty noise (see _gp_perturb); 1.0 draws with each record's
+                              own GPR std, 0.0 turns it off. Only active when the GPR stds are passed to .fit()
+                              as extra inputs. Baked in at tracing like noise_level.
+        vali_gp_noise       - also perturb the validation data with GPR noise (default False: validation, and so the
+                              val_C_2 / val_lag1_acf checkpoint gate, is scored against the GPR mean trajectory)
         """
 
         super(RolloutEmulator, self).__init__()
@@ -43,6 +48,8 @@ class RolloutEmulator(tf.keras.Model):
         self.vali_rollout_length = vali_rollout_length
         self.L_2_weight = L_2_weight
         self.noise_level = noise_level
+        self.gp_noise_scale = gp_noise_scale
+        self.vali_gp_noise = vali_gp_noise
 
         self.brain.build((None, window_size, n_features))
 
@@ -165,6 +172,30 @@ class RolloutEmulator(tf.keras.Model):
 
         return loss
 
+    def _gp_perturb(self, features, X_init, y):
+        """
+        Replaces the GPR mean trajectory with one noisy realization of it: independent Gaussian noise for each
+        record (X, Y, Z) and time step, with that record's GPR std at that time step. Fresh noise is drawn for
+        every batch of every epoch. Insolation is deterministic and is left untouched.
+
+        The stds come in through .fit() as extra inputs (LPNE.create_std_windows):
+            features[2] - std_init,   (batch, window_size, 3): std of each state value in the input window
+            features[3] - std_future, (batch, rollout_length, 3): std of each target value
+        If they aren't passed (only [X, forcing]), X_init and y are returned unchanged.
+
+        X_init - (batch, window_size, 4) input window; y - (batch, rollout_length, 3) target trajectory
+        """
+        if len(features) < 4 or self.gp_noise_scale == 0:
+            return X_init, y
+
+        std_init = tf.cast(features[2], X_init.dtype) * self.gp_noise_scale
+        std_future = tf.cast(features[3], y.dtype) * self.gp_noise_scale
+
+        noisy_states = X_init[:, :, 0:3] + tf.random.normal(tf.shape(std_init), dtype=X_init.dtype) * std_init
+        X_init = tf.concat([noisy_states, X_init[:, :, 3:]], axis=-1)
+        y = y + tf.random.normal(tf.shape(std_future), dtype=y.dtype) * std_future
+        return X_init, y
+
     # heart of the actual training step
     @tf.function
     def train_step(self,data):
@@ -175,8 +206,12 @@ class RolloutEmulator(tf.keras.Model):
 
         # features itself contains the X_init values being the values of the state space (X,Y,Z) and the insolation forcing in the input window w at index 0
         # at index 1 the "future" insolation forcing aka. the insolation during the rollout is passed with shape (rollout_length,1)
+        # optional indices 2 and 3 are the GPR stds of the window and the target (see _gp_perturb)
         X_init = features[0]
         future_forcing = features[1]
+
+        # swap the GPR mean for a noisy realization of it (no-op if the stds weren't passed)
+        X_init, y = self._gp_perturb(features, X_init, y)
 
         batch_size = tf.shape(X_init)[0]
         n_features = tf.shape(X_init)[2]
@@ -281,6 +316,10 @@ class RolloutEmulator(tf.keras.Model):
         (features,y) = data
         X_init = features[0]
         future_forcing = features[1]
+
+        # validation is scored against the GPR mean unless vali_gp_noise is set
+        if self.vali_gp_noise:
+            X_init, y = self._gp_perturb(features, X_init, y)
 
         batch_size = tf.shape(X_init)[0]
         n_features = tf.shape(X_init)[2]

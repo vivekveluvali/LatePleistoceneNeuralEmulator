@@ -20,6 +20,7 @@ Data/SM90_altstep/
 
 # manual backups (git replaces these)
 Archive/_backup_*/
+Archive/Old_SM90_Runs
 
 # scratch
 Claude outputs/

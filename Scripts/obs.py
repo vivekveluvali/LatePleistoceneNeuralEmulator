@@ -41,7 +41,7 @@ DATAFOLDER = {
         .assign(Variance = None)[['Est_CO2_linear', 'Age[kaBP]', 'Variance']],
 
     # insolation is deterministic and does not have a variance
-    'insol': pd.read_csv(f'{PROJECT}/Data/Observations/huybers06_65north_labeled.csv')
+    'insol_huy06': pd.read_csv(f'{PROJECT}/Data/Observations/huybers06_65north_labeled.csv')
         .assign(Variance = None)[['ISI_thresh0Wm2', 'Age[kaBP]']],
     # Berger (1990) orbital solution computed with palinsol: 0-1500 ka every 0.1 ka, file is oldest first ->
     # sorted youngest first like 'insol'; age_kyr -> 'Age[kaBP]'. Q65N_solstice_raw is daily-mean insolation
@@ -65,14 +65,17 @@ NAMES = {
     'co2_Hon': 'pCO2water_SST_wet[µatm](constantAlkalinity_Calculated)',
     'co2_Yam': 'Est_CO2_linear',
 
-    'insol': 'ISI_thresh0Wm2',
+    'insol_huy06': 'ISI_thresh0Wm2',
     'insol_ber90': 'Q65N_solstice_raw',
 }
 
 # deterministic forcing records: never GP-regressed, and usable as SM90 forcing
-INSOL_KEYS = ('insol', 'insol_ber90')
+INSOL_KEYS = ('insol_huy06', 'insol_ber90')
 
-CUTOFF = 4000 # in ka, originally in 10ka
+CUTOFFS = {
+    'insol_huy06':4000,
+    'insol_ber90':1500,
+} # in ka, originally in 10ka
 TIME_UNIT = 10 # in ka; for SM90 integration, which works in 10ka units
 print('variables established')
 
@@ -84,10 +87,10 @@ def select_data(name):
         '- temp :  ch4_EDC, MgCa_Eld\n' \
         '- ice  :  dO18_EDC, dO18_LR04, dO18_Eld\n'\
         '- CO2  :  co2_EDC, co2_Hon, co2_Yam\n'\
-        '- insol:  insol (Huybers 2006 ISI), insol_ber90 (Berger 1990 65N solstice)')
+        '- insol:  insol_huy06 (Huybers 2006 ISI), insol_ber90 (Berger 1990 65N solstice)')
         return -1
 
-def SM90(t,system,R,n=0,cutoff=CUTOFF):
+def SM90(t,system,R,n=0,cutoff=CUTOFFS['insol_huy06']):
     """
     Saltzman-Maasch 1990 model (SM90) from "A first-order global model of late Cenozoic climatic change";
     Late Pleistocene solution;
@@ -120,11 +123,11 @@ def SM90(t,system,R,n=0,cutoff=CUTOFF):
 
     return np.array([dX_dt, dY_dt, dZ_dt])
 
-def create_SM90(dt = 1, system_0 = np.array([-1.0,0,1]), insol = 'insol', cutoff = CUTOFF):
+def create_SM90(dt = 1, system_0 = np.array([-1.0,0,1]), insol = 'insol_huy06', cutoff = CUTOFFS['insol_huy06']):
     '''
         dt        -  output spacing in ka
         system_0  -  initial (X, Y, Z) at the oldest age, cutoff
-        insol     -  forcing record, one of INSOL_KEYS ('insol' = Huybers ISI, 'insol_ber90' = Berger 1990
+        insol     -  forcing record, one of INSOL_KEYS ('insol_huy06' = Huybers ISI, 'insol_ber90' = Berger 1990
                      65N solstice insolation)
         cutoff    -  oldest age [ka] = start of the integration; must lie within the forcing record
                      (insol_ber90 only reaches 1500 ka, so it needs cutoff <= 1500)
@@ -197,7 +200,7 @@ if __name__ == "__main__":
     # writes them out; only runs when obs.py is executed directly, so that
     # importing DATAFOLDER/select_data/etc. elsewhere (e.g. standardplots.py)
     # doesn't trigger this every time
-    outfile = select_data('insol')
+    outfile = select_data('insol_huy06')
     print('constructing Gaussian process regression')
     for name in NAMES:
         if name in INSOL_KEYS:
@@ -215,10 +218,14 @@ if __name__ == "__main__":
     outfile = outfile.sort_values(AGE_COL).reset_index(drop=True)
     outfile.to_csv(f'{PROJECT}/Data/InterpolatedObs/gpr_{outfile[AGE_COL].max()}kaBP.csv')
 
-    print('GPR exported, now constructing SM90 trajectory')
+    print('GPR exported, now constructing SM90 trajectory w/ Huybers06 insolation')
     sm90_out = create_SM90()
 
-    print('SM90 trajectory constructed, exporting data')
-    sm90_out.to_csv(f'{PROJECT}/Data/SM90/sm90.csv')
+    print('SM90 trajectory w/ Huybers06 insolation constructed, exporting data')
+    sm90_out.to_csv(f'{PROJECT}/Data/SM90/sm90_huy06.csv')
 
-    
+    print('SM90 trajectory w/ Huybers06 insolation exported, now constructing SM90 trajectory w/ ber90 insolation')
+    sm90_out = create_SM90(insol='insol_ber90', cutoff=CUTOFFS['insol_ber90'])
+
+    print('SM90 trajectory w/ ber90 insolation constructed, exporting data')
+    sm90_out.to_csv(f'{PROJECT}/Data/SM90/sm90_ber90.csv')

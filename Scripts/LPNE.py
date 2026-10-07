@@ -18,6 +18,23 @@ def create_windows(data, window_size, rollout_length):
 
     return np.array(X_list), np.array(y_list), np.array(Insol_rollout_list)
 
+def create_std_windows(std, window_size, rollout_length):
+    '''
+        std             -  (n, 3) GPR standard deviations of X, Y, Z, already in scaled units
+                           (run_config.scale_std), row-aligned with the data passed to create_windows
+        window_size     -  same as create_windows
+        rollout_length  -  same as create_windows
+
+        returns (std_init, std_future) with shapes (n_windows, window_size, 3) and
+        (n_windows, rollout_length, 3): the std for every state value in the matching
+        create_windows input window and target. Passed to RolloutEmulator as extra inputs
+        so it can draw GPR noise (see AREmulator.RolloutEmulator._gp_perturb).
+    '''
+    n_windows = len(std) - window_size - rollout_length
+    std_init = np.array([std[i:i + window_size] for i in range(n_windows)])
+    std_future = np.array([std[i + window_size: i + window_size + rollout_length] for i in range(n_windows)])
+    return std_init, std_future
+
 ## Function encoding actual model architecture
 def CNN_model(window_size, n_features, params):
     """

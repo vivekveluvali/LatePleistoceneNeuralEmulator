@@ -69,6 +69,7 @@ def LossPlots(history, phys_check):
     plt.show()
 
 @tf.function
+# predict_step used in rollout
 def predict_step(model, w):
     '''
         model   -   RolloutEmulator class (see AREmulator.py) 
@@ -115,7 +116,8 @@ def rollout(model, data, window_size):
     return emulator_test_data
 
 def plot_rollout(model, data, time, window_size, flag = False, rollout_data = None,
-            colors = [["#D6195E","#FFB600"],["#1E88E5","#6519C5"],["#05EFC5","#8DB1A7"]]):
+            colors = [["#D6195E","#FFB600"],["#1E88E5","#6519C5"],["#05EFC5","#8DB1A7"]],
+            insol_color = "coral"):
     '''
         model         -   trained RolloutEmulator
         data          -   scaled ground truth; columns X, Y, Z, Insolation
@@ -125,6 +127,10 @@ def plot_rollout(model, data, time, window_size, flag = False, rollout_data = No
         rollout_data  -   optional precomputed rollout(model, data, window_size), so the
                           (slow) rollout isn't redone for every plot
         colors        -   colormap for plots
+        insol_color   -   color of the insolation panel
+
+        plots X, Y, Z (emulator vs. data) and, in a fourth panel, the scaled insolation forcing
+        that drove the rollout
 
         returns (overall_rmse, overall_r2, overall_ma_rmse); overall_ma_rmse is None if flag=False
     '''
@@ -134,44 +140,56 @@ def plot_rollout(model, data, time, window_size, flag = False, rollout_data = No
     leng = rollout_data.shape[0]
 
     # actual plotting step
-    fig,axs = plt.subplots(3,1,figsize=(20,6),sharex=True)
+    with plt.rc_context({'font.size': 16}):
+        fig,axs = plt.subplots(4,1,figsize=(22,15),sharex=True)
 
-    for i in range(len(axs)):
-        axs[i].plot(
-            time[:leng], # tie dimensions to rollout dimensions
-            rollout_data[:,i],
-            color = colors[i][1],
-            label="emulator data")
+        for i in range(3):
+            axs[i].plot(
+                time[:leng], # tie dimensions to rollout dimensions
+                rollout_data[:,i],
+                color = colors[i][1],
+                lw = 2,
+                label="emulator data")
 
-        axs[i].plot(
-            time[:leng],
-            data[:leng,i],
-            label="real scaled data",
-            alpha = 0.4,
-            linestyle = "dashed",
-            color = colors[i][0])
+            axs[i].plot(
+                time[:leng],
+                data[:leng,i],
+                label="real scaled data",
+                alpha = 0.6,
+                linestyle = "dashed",
+                lw = 2,
+                color = colors[i][0])
 
-        axs[i].set_title(r"$\mathcal{L}_{L_2}$"+f"= {mean_squared_error(data[window_size:,i],rollout_data[window_size:,i]):.3f}")
-        axs[i].invert_xaxis()
-        axs[i].set_ylabel(MAPPINGS[i])
+            axs[i].set_title(r"$\mathcal{L}_{L_2}$"+f"= {mean_squared_error(data[window_size:,i],rollout_data[window_size:,i]):.3f}")
+            axs[i].set_ylabel(MAPPINGS[i])
+            axs[i].legend(loc='upper left', fontsize=14)
+            axs[i].grid(True, alpha=0.3)
 
-    overall_ma_rmse = None
-    if flag:
-        ma_window = window_size
-        moving_avg = np.column_stack([
-            pd.Series(data[:leng, i]).rolling(ma_window, min_periods=1).mean().to_numpy()
-            for i in range(3)
-        ])
-        for i in range(len(axs)):
-            axs[i].plot(time[:leng], moving_avg[:, i], color="gray", linewidth=1,
-                        label=f"{ma_window}-step moving average")
+        # insolation: given, not predicted - the rollout takes it from data at every step
+        axs[3].plot(time[:leng], data[:leng, 3], color=insol_color, lw=1.5)
+        axs[3].set_title("Insolation forcing")
+        axs[3].set_ylabel("Insolation (scaled)")
+        axs[3].grid(True, alpha=0.3)
 
-        overall_ma_rmse = np.sqrt(mean_squared_error(data[window_size:leng, 0:3], moving_avg[window_size:leng, 0:3]))
+        overall_ma_rmse = None
+        if flag:
+            ma_window = window_size
+            moving_avg = np.column_stack([
+                pd.Series(data[:leng, i]).rolling(ma_window, min_periods=1).mean().to_numpy()
+                for i in range(3)
+            ])
+            for i in range(3):
+                axs[i].plot(time[:leng], moving_avg[:, i], color="gray", linewidth=1,
+                            label=f"{ma_window}-step moving average")
+                axs[i].legend(loc='upper left', fontsize=14)
 
+            overall_ma_rmse = np.sqrt(mean_squared_error(data[window_size:leng, 0:3], moving_avg[window_size:leng, 0:3]))
 
-    axs[-1].set_xlabel("time [kyr]")
-    plt.tight_layout()
-    plt.show()
+        # the panels share one x-axis, so invert it once (each call flips it)
+        axs[-1].invert_xaxis()
+        axs[-1].set_xlabel("time [kyr]")
+        plt.tight_layout()
+        plt.show()
 
     # overall error across all three state variables combined (X, Y, Z), seed window excluded
     overall_rmse = np.sqrt(mean_squared_error(data[window_size:leng, 0:3], rollout_data[window_size:, 0:3]))
