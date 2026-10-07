@@ -68,3 +68,11 @@ def CNN_model(window_size, n_features, params):
     #out = out * tf.constant([0.47893476,0.78733971,0.21167531], dtype=tf.float32)
 
     return Model(inputs = inp,outputs = out)
+
+def TCN_model():
+    print('not implemented yet')
+    return None
+
+def reservoircomputer_model():
+    print('not implemented yet')
+    return None

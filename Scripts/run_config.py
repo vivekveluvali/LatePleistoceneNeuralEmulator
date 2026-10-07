@@ -68,6 +68,7 @@ COLORS = {
     "Hon":    "#FB8C00",
     "Yam":      "#6519C5",
     "insol":"coral",
+    "insol_ber90":"#00897B",
     "X":"lightskyblue",
     "Y":"slategrey",
     "Z":"limegreen",

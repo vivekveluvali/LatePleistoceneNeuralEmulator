@@ -43,6 +43,12 @@ DATAFOLDER = {
     # insolation is deterministic and does not have a variance
     'insol': pd.read_csv(f'{PROJECT}/Data/Observations/huybers06_65north_labeled.csv')
         .assign(Variance = None)[['ISI_thresh0Wm2', 'Age[kaBP]']],
+    # Berger (1990) orbital solution computed with palinsol: 0-1500 ka every 0.1 ka, file is oldest first ->
+    # sorted youngest first like 'insol'; age_kyr -> 'Age[kaBP]'. Q65N_solstice_raw is daily-mean insolation
+    # at 65N on the June solstice [W/m2]; the precession components (Pi_P_raw, Pi_C_raw), obliquity (E_raw, rad)
+    # and 65N insolation at true solar longitude 120 deg (Q65N_lam120_raw, W/m2) are kept as extra columns
+    'insol_ber90': pd.read_csv(f'{PROJECT}/Data/Observations/palinsol_ber90_raw.csv')
+        .rename(columns={'age_kyr': 'Age[kaBP]'}).sort_values('Age[kaBP]').reset_index(drop=True),
 }
 
 AGE_COL, VAR_COL = 'Age[kaBP]', 'Variance'
@@ -60,7 +66,11 @@ NAMES = {
     'co2_Yam': 'Est_CO2_linear',
 
     'insol': 'ISI_thresh0Wm2',
+    'insol_ber90': 'Q65N_solstice_raw',
 }
+
+# deterministic forcing records: never GP-regressed, and usable as SM90 forcing
+INSOL_KEYS = ('insol', 'insol_ber90')
 
 CUTOFF = 4000 # in ka, originally in 10ka
 TIME_UNIT = 10 # in ka; for SM90 integration, which works in 10ka units
@@ -74,22 +84,23 @@ def select_data(name):
         '- temp :  ch4_EDC, MgCa_Eld\n' \
         '- ice  :  dO18_EDC, dO18_LR04, dO18_Eld\n'\
         '- CO2  :  co2_EDC, co2_Hon, co2_Yam\n'\
-        '- insol')
+        '- insol:  insol (Huybers 2006 ISI), insol_ber90 (Berger 1990 65N solstice)')
         return -1
 
-def SM90(t,system,R,n=0):
+def SM90(t,system,R,n=0,cutoff=CUTOFF):
     """
     Saltzman-Maasch 1990 model (SM90) from "A first-order global model of late Cenozoic climatic change";
-    Late Pleistocene solution; 
-    pages 320-321 
+    Late Pleistocene solution;
+    pages 320-321
 
-    t      - time 
+    t      - time
     system - state vector
-    R      - insolation forcing 
-    n      - statistical forcing (e.g. normally distributed noise) 
+    R      - insolation forcing
+    n      - statistical forcing (e.g. normally distributed noise)
+    cutoff - age [ka] at which the integration starts (t = 0)
     """
 
-    X_t, Y_t, Z_t, R_t = system[0], system[1], system[2], R(CUTOFF-TIME_UNIT*t)
+    X_t, Y_t, Z_t, R_t = system[0], system[1], system[2], R(cutoff-TIME_UNIT*t)
 
     # random variable for noise inclusion if noise is non-yero
     b = random.choice([True, False])
@@ -109,25 +120,33 @@ def SM90(t,system,R,n=0):
 
     return np.array([dX_dt, dY_dt, dZ_dt])
 
-def create_SM90(dt = 1, system_0 = np.array([-1.0,0,1])):
+def create_SM90(dt = 1, system_0 = np.array([-1.0,0,1]), insol = 'insol', cutoff = CUTOFF):
     '''
         dt        -  output spacing in ka
-        system_0  -  initial (X, Y, Z) at the oldest age, CUTOFF
+        system_0  -  initial (X, Y, Z) at the oldest age, cutoff
+        insol     -  forcing record, one of INSOL_KEYS ('insol' = Huybers ISI, 'insol_ber90' = Berger 1990
+                     65N solstice insolation)
+        cutoff    -  oldest age [ka] = start of the integration; must lie within the forcing record
+                     (insol_ber90 only reaches 1500 ka, so it needs cutoff <= 1500)
 
-        model time t runs forward from CUTOFF ka in units of TIME_UNIT (10 ka), so age = CUTOFF - TIME_UNIT*t
+        model time t runs forward from cutoff ka in units of TIME_UNIT (10 ka), so age = cutoff - TIME_UNIT*t
     '''
-    i = select_data('insol')
-    R_Df = i[i[AGE_COL]<=CUTOFF].copy()  # ages stay in ka; SM90() converts model time to age before calling R
+    i = select_data(insol)
+    if cutoff > i[AGE_COL].max():
+        raise ValueError(f"cutoff = {cutoff} ka is older than the '{insol}' record ({i[AGE_COL].max()} ka); "
+                         f"pass a smaller cutoff")
+    col = NAMES[insol]
+    R_Df = i[i[AGE_COL]<=cutoff].copy()  # ages stay in ka; SM90() converts model time to age before calling R
     R_Df = R_Df[::-1]
 
     # scaling insolation to mean of 0 and variance of 1 in accordance with SM90
-    R_Scaler = StandardScaler().fit(R_Df[NAMES['insol']].values.reshape(-1, 1))
-    R_Df[NAMES['insol']] = R_Scaler.transform(R_Df[NAMES['insol']].values.reshape(-1, 1))
+    R_Scaler = StandardScaler().fit(R_Df[col].values.reshape(-1, 1))
+    R_Df[col] = R_Scaler.transform(R_Df[col].values.reshape(-1, 1))
 
     # interpolate forcing since solve_ivp uses adaptable time step
     R_forcing = interp1d(
         R_Df[AGE_COL],
-        R_Df[NAMES['insol']],
+        R_Df[col],
         kind='linear',
         bounds_error=False,
         fill_value=0.0
@@ -135,11 +154,11 @@ def create_SM90(dt = 1, system_0 = np.array([-1.0,0,1])):
 
     # output ages in ka (exact, so they merge cleanly with other 1 ka tables), oldest first,
     # and the matching model times in TIME_UNIT units
-    age = CUTOFF - np.arange(0, CUTOFF + dt, dt)  # CUTOFF ... 0 ka, endpoints included
-    t = (CUTOFF - age) / TIME_UNIT
+    age = cutoff - np.arange(0, cutoff + dt, dt)  # cutoff ... 0 ka, endpoints included
+    t = (cutoff - age) / TIME_UNIT
 
     # numerical solver
-    sol = solve_ivp(SM90,t_span=[0,CUTOFF/TIME_UNIT],y0=system_0,t_eval=t,args=(R_forcing,0))
+    sol = solve_ivp(SM90,t_span=[0,cutoff/TIME_UNIT],y0=system_0,t_eval=t,args=(R_forcing,0,cutoff))
 
     # insolation stored at each row's age = the forcing that drove that step
     return pd.DataFrame({
@@ -147,7 +166,7 @@ def create_SM90(dt = 1, system_0 = np.array([-1.0,0,1])):
         'X': sol.y[0, :],
         'Y': sol.y[1, :],
         'Z': sol.y[2, :],
-        NAMES['insol']: R_forcing(age),
+        col: R_forcing(age),
     })
 
 def gp_reg(source):
@@ -181,12 +200,17 @@ if __name__ == "__main__":
     outfile = select_data('insol')
     print('constructing Gaussian process regression')
     for name in NAMES:
-        if name == 'insol':
-            continue    
+        if name in INSOL_KEYS:
+            continue
         x_fine = np.arange(0, select_data(name)[AGE_COL].max() + 1, 1.0)  # 1 ka grid
         y_fine, y_std = gp_reg(name).predict(x_fine.reshape(-1, 1), return_std=True)
         columns = pd.DataFrame({AGE_COL: x_fine, name: y_fine, f'{VAR_COL}_{name}': y_std ** 2})
         outfile = pd.merge(outfile, columns, on=AGE_COL, how='outer')
+
+    # Berger 1990 solstice insolation as an extra forcing column; left merge keeps only the 1 ka ages
+    # (the record itself is every 0.1 ka, 0-1500 ka)
+    ber90 = select_data('insol_ber90')[[AGE_COL, NAMES['insol_ber90']]]
+    outfile = pd.merge(outfile, ber90, on=AGE_COL, how='left')
 
     outfile = outfile.sort_values(AGE_COL).reset_index(drop=True)
     outfile.to_csv(f'{PROJECT}/Data/InterpolatedObs/gpr_{outfile[AGE_COL].max()}kaBP.csv')
