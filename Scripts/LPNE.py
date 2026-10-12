@@ -86,6 +86,10 @@ def CNN_model(window_size, n_features, params):
 
     return Model(inputs = inp,outputs = out)
 
+#optimizer -- weight decay O(1e-3) to penalize overfitting
+#TCN and wavenet architecture
+#Continuous Flow Matching (used neural operators, but can use different backbones)
+
 def TCN_model():
     print('not implemented yet')
     return None

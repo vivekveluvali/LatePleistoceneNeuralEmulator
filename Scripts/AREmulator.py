@@ -276,8 +276,9 @@ class RolloutEmulator(tf.keras.Model):
             total_loss = self.L_2_weight * abs_loss
 
             # plain point-to-point MSE, logged for comparison only - not part of total_loss,
-            # so it has no effect on the gradients computed below
-            pointwise_mse = tf.reduce_mean(tf.square(true_path[:,1:,:] - p_stack))
+            # so it has no effect on the gradients computed below. Also kept per state variable (X, Y, Z)
+            mse_per_var = tf.reduce_mean(tf.square(true_path[:,1:,:] - p_stack), axis=[0, 1])  # (3,)
+            pointwise_mse = tf.reduce_mean(mse_per_var)
 
         # Backporpagation through the forward pass operations tracked by GradientTape()
         grads = tape.gradient(total_loss,self.trainable_variables)
@@ -287,7 +288,10 @@ class RolloutEmulator(tf.keras.Model):
         return {
             "loss": total_loss,
             "abs": abs_loss,
-            "mse": pointwise_mse}
+            "mse": pointwise_mse,
+            "mse_X": mse_per_var[0],
+            "mse_Y": mse_per_var[1],
+            "mse_Z": mse_per_var[2]}
 
     # test_step used in the validation process
     # essentially the same as the training step, only with training disabled and no backpropagation/ weights update
@@ -357,8 +361,9 @@ class RolloutEmulator(tf.keras.Model):
         abs_loss = self._harmonized_mse(true_path[:,1:,:], p_stack, self.vali_rollout_length,
                                          self.fbar_vali, update=True)
 
-        # plain point-to-point MSE, logged for comparison only
-        pointwise_mse = tf.reduce_mean(tf.square(true_path[:,1:,:] - p_stack))
+        # plain point-to-point MSE, logged for comparison only (overall and per state variable)
+        mse_per_var = tf.reduce_mean(tf.square(true_path[:,1:,:] - p_stack), axis=[0, 1])  # (3,)
+        pointwise_mse = tf.reduce_mean(mse_per_var)
 
         lag1_acf = calculate_lag1_acf(p_stack)
 
@@ -375,6 +380,9 @@ class RolloutEmulator(tf.keras.Model):
             "loss": total_loss,
             "abs": abs_loss,
             "mse": pointwise_mse,
+            "mse_X": mse_per_var[0],
+            "mse_Y": mse_per_var[1],
+            "mse_Z": mse_per_var[2],
             "lag1_acf": lag1_acf,
             "C_2": C_2}
     

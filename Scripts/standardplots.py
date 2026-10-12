@@ -8,8 +8,15 @@ import multitaper as mt
 from scipy import stats
 
 from obs import select_data, AGE_COL, NAMES, VAR_COL
+from run_config import COLORS, MODEL_OUTPUT_DIR, STATE_RECORDS
 
 MAPPINGS = ["X","Y","Z"]
+ORBITAL = {100: 'darkblue', 41: 'slateblue', 23: 'mediumpurple'}  # orbital periods [kyr] -> reference line color
+
+def _inv(v):
+    '''frequency <-> period conversion for a secondary x-axis (1/f both ways); ignores the f = 0 divide warning'''
+    with np.errstate(divide='ignore'):
+        return 1 / np.asarray(v, dtype=float)
 
 def LossPlots(history, phys_check):
     '''
@@ -24,7 +31,8 @@ def LossPlots(history, phys_check):
 
 
     # PLOTTING LOSS INFORMATION
-    fig,axs = plt.subplot_mosaic(("A;B;C"),figsize = (22,16))
+    # bottom row: one point-to-point MSE panel per state variable (keys X, Y, Z), sharing the y axis
+    fig,axs = plt.subplot_mosaic(("AAA;BBB;XYZ"),figsize = (22,16))
 
     axs['A'].plot(history.epoch,Metrics["abs"], label = 'Training Error')
     axs['A'].plot(history.epoch,Metrics["val_abs"], label = 'Validation Error')
@@ -42,13 +50,19 @@ def LossPlots(history, phys_check):
     axs['B'].legend(loc='center right')
     axs['B'].grid(True, alpha=0.3)
 
-    axs['C'].plot(history.epoch,Metrics["mse"], label = 'Training Error')
-    axs['C'].plot(history.epoch,Metrics["val_mse"], label = 'Validation Error')
-    axs['C'].set_title("Point-to-Point MSE vs. Epochs", fontweight = "bold")
-    axs['C'].set_ylabel("MSE")
-    axs['C'].set_xlabel("epochs")
-    axs['C'].grid(True, alpha=0.3)
-    axs['C'].legend()
+    # training solid, validation dashed, in each variable's color
+    for var in MAPPINGS:
+        ax = axs[var]
+        ax.plot(history.epoch,Metrics[f"mse_{var}"], color = COLORS[var], label = 'Training')
+        ax.plot(history.epoch,Metrics[f"val_mse_{var}"], color = COLORS[var], linestyle = '--', label = 'Validation')
+        ax.set_title(f"Point-to-Point MSE ({var})", fontweight = "bold")
+        ax.set_xlabel("epochs")
+        ax.grid(True, alpha=0.3)
+        ax.legend()
+        if var != MAPPINGS[0]:
+            ax.sharey(axs[MAPPINGS[0]])
+            ax.tick_params(labelleft=False)
+    axs[MAPPINGS[0]].set_ylabel("MSE")
 
     for key in axs:
         axs[key].axvline(x=best_ep, color='red', linestyle='--', alpha=0.6, label='Best Physical Model')
@@ -79,11 +93,15 @@ def predict_step(model, w):
     '''
     return model(w, training=False)
 
-def rollout(model, data, window_size):
+def rollout(model, data, window_size, export_name=None, time=None, scaler=None):
     '''
         model         -   trained RolloutEmulator (or the bare CNN "brain")
         data          -   data used for autoregressive rollout; should be scaled
         window_size   -   size of window from which initial conditions are drawn
+        export_name   -   optional file name (no extension): if given, the rollout is also written to
+                          Data/EmulatorOutput/<export_name>.csv (see export_rollout)
+        time          -   optional ages [ka BP] of the rows of data, written as the age column of the csv
+        scaler        -   optional scaler data was scaled with; adds the rollout in physical units to the csv
 
         return the autoregressive rollout trajectory from the initial conditions
     '''
@@ -113,7 +131,32 @@ def rollout(model, data, window_size):
         ed.append(nxt_step)
 
     emulator_test_data = np.array(ed)
+    if export_name is not None:
+        export_rollout(emulator_test_data, export_name, time=time, scaler=scaler)
     return emulator_test_data
+
+def export_rollout(rollout_data, name, time=None, scaler=None):
+    '''
+        rollout_data  -   (n, 4) scaled rollout from rollout(): X, Y, Z, insolation
+        name          -   file name (no extension), e.g. f"{cfg['run_tag']}_full_rollout"
+        time          -   optional ages [ka BP] of the rows -> AGE_COL column
+        scaler        -   optional scaler the data was scaled with -> extra columns in physical units,
+                          named after run_config.STATE_RECORDS (+ 'Insolation')
+
+        writes the rollout to MODEL_OUTPUT_DIR/<name>.csv (same layout as the existing files there) and
+        returns the path
+    '''
+    df = pd.DataFrame(rollout_data, columns=['X_scaled', 'Y_scaled', 'Z_scaled', 'Insolation_scaled'])
+    if scaler is not None:
+        df[STATE_RECORDS + ['Insolation']] = scaler.inverse_transform(rollout_data)
+    if time is not None:
+        df.insert(0, AGE_COL, np.asarray(time)[:len(df)])
+
+    MODEL_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    path = MODEL_OUTPUT_DIR / f"{name}.csv"
+    df.to_csv(path, index=False)
+    print(f"rollout saved to {path}")
+    return path
 
 def plot_rollout(model, data, time, window_size, flag = False, rollout_data = None,
             colors = [["#D6195E","#FFB600"],["#1E88E5","#6519C5"],["#05EFC5","#8DB1A7"]],
@@ -315,65 +358,71 @@ def frequency_spectra(model, data, window_size, timestep = 1, spec_var = 0, nw =
     if rollout_data is None:
         rollout_data = rollout(model, data, window_size)
 
-    dt = timestep
-    SPEC_VAR = spec_var
-
-    # label -> (series, color)
+    # key -> (label, series, color, marker)
     datasets = {
-        "gt":   ("Ground truth",                data[:, SPEC_VAR],             '#D6195E'),
-        #"tv":   ("Training/validation rollout", full_rollout[:, SPEC_VAR],            '#1E88E5'),
-        "test": ("Test rollout (long)",         rollout_data[:, SPEC_VAR], '#43A047'),
+        "gt":   ("Ground truth (GPR mean)",  data[:, spec_var],         '#D6195E', 'o',  0.8),
+        "test": ("Emulator rollout",         rollout_data[:, spec_var], '#082271', 's', 0.4),
     }
 
     results = {}
-    fig, ax = plt.subplots(figsize=(12, 6))
+    with plt.rc_context({'font.size': 16}):
+        fig, ax = plt.subplots(figsize=(18, 9))
 
-    for key, (label, x, color) in datasets.items():
-        freq, spec, ci_lower, ci_upper, significant = multitaper_spectrum(x, dt, nw)
-        results[key] = {"freq": freq, "spec": spec, "ci_lower": ci_lower, "ci_upper": ci_upper, "significant": significant}
+        for key, (label, x, color, marker, alpha) in datasets.items():
+            freq, spec, ci_lower, ci_upper, significant = multitaper_spectrum(x, timestep, nw)
+            results[key] = {"freq": freq, "spec": spec, "ci_lower": ci_lower, "ci_upper": ci_upper, "significant": significant}
 
-        ax.plot(freq, spec, color=color, label=f"{label} spectrum")
-        ax.fill_between(freq, ci_lower, ci_upper, color=color, alpha=0.15)
-        ax.scatter(freq[significant], spec[significant], color=color, edgecolor="black", s=20, zorder=5)
+            # spectrum line, CI band, and markers on F-test-significant frequencies;
+            # f = 0 (the mean) can't go on a log axis
+            pos = freq > 0
+            sig = pos & significant
+            ax.plot(freq[pos], spec[pos], color=color, lw=2, label=label, alpha=alpha)
+            ax.fill_between(freq[pos], ci_lower[pos], ci_upper[pos], color=color, alpha=0.15, linewidth=0)
+            ax.scatter(freq[sig], spec[sig], color=color, marker=marker, edgecolor='black', s=45, zorder=5)
 
-        #print(f"{label} significant periods (kyr):", 1 / freq[significant])
+        # reference lines at the eccentricity (100 kyr), obliquity (41 kyr) and precession (23 kyr) periods
+        for period, color in ORBITAL.items():
+            ax.axvline(1/period, color=color, linestyle='dashed', alpha=0.6, label=f'{period} kyr cycle')
 
-    ymin = min(r["spec"].min() for r in results.values())
-    ymax = max(r["spec"].max() for r in results.values())
-    ax.vlines(1/100, ymin=ymin, ymax=ymax, alpha=0.5, linestyle="dashed", label="100 kyr cycle", color="darkblue")
-    ax.vlines(1/41,  ymin=ymin, ymax=ymax, alpha=0.5, linestyle="dashed", label="41 kyr cycle",  color="slateblue")
-
-    ax.set_yscale("log")
-    ax.set_xscale("log")
-    ax.set_xlabel("frequency [1/kyr]")
-    ax.set_ylabel("power")
-    ax.set_title(f"Multitaper spectra ({MAPPINGS[SPEC_VAR]}): ground truth vs. autoregressive rollouts")
-    ax.legend()
-    plt.tight_layout()
-    plt.show()
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_xlabel('frequency [1/kyr]')
+        ax.set_ylabel(r'power [scaled units$^2$ kyr]')  # data are in the training scaler's units
+        ax.secondary_xaxis('top', functions=(_inv, _inv)).set_xlabel('period [kyr]')  # same axis, labelled as period
+        ax.set_title(f'Multitaper spectra ({MAPPINGS[spec_var]}): ground truth vs. autoregressive rollout',
+                     fontweight='bold')
+        ax.grid(True, alpha=0.3)
+        ax.legend(loc='lower left', fontsize=14)
+        fig.text(0.99, 0.005, r'bands: 95% $\chi^2$ CI   markers: Thomson F-test significant at 95%',
+                 ha='right', va='bottom', fontsize=14, color='dimgray')
+        plt.tight_layout(rect=[0, 0.02, 1, 1])
+        plt.show()
 
     return results
 
-def plot_resolution(ax, source, color):
+def plot_resolution(ax, source, color, marker='.', xmax=None, label=None):
     '''
         ax      -   matplotlib axis to plot on
         source  -   a DATAFOLDER/NAMES key (see obs.py), e.g. "ch4_EDC"
         color   -   color palette to use
+        marker  -   point marker (e.g. the source's marker, to match other plots)
+        xmax    -   optional oldest age [ka] to include; None -> the whole record
+        label   -   optional title name for the record; None -> the source key
 
         plots sample spacing vs. age for one observational source, to show
-        how temporal resolution varies/degrades with age
+        how temporal resolution varies/degrades with age. Doesn't call plt.show(), so several records
+        can be drawn on the panels of one figure; show the figure from the caller.
 
-        returns the mean spacing between samples and the number of samples
+        returns the mean spacing between samples and the number of samples (over the ages included)
     '''
-    age_sorted = select_data(source)[AGE_COL]
-    color = color
+    age_sorted = select_data(source)[AGE_COL].to_numpy()
+    if xmax is not None:
+        age_sorted = age_sorted[age_sorted <= xmax]
     spacing = np.diff(age_sorted)  # kyr between consecutive samples
-    ax.plot(age_sorted[1:], spacing, '.', markersize=3, color=color, alpha=0.6)
+    ax.plot(age_sorted[1:], spacing, marker, markersize=4, linestyle='none', color=color, alpha=0.6)
     ax.set_yscale('log')
     ax.set_xlabel("Age [ka BP]")
-    ax.set_ylabel("Sample spacing [kyr] (log scale)")
-    ax.set_title(f"{source}: mean spacing = {np.mean(spacing):.2f} kyr, n = {len(age_sorted)}")
-
-    plt.show()
+    ax.set_ylabel("Sample spacing [kyr]")
+    ax.set_title(f"{label or source}: mean spacing = {np.mean(spacing):.2f} kyr, n = {len(age_sorted)}")
 
     return np.mean(spacing), len(age_sorted)

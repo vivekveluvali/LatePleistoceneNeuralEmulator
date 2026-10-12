@@ -37,7 +37,7 @@ from sklearn.preprocessing import StandardScaler
 
 PROJECT = Path(__file__).resolve().parents[1]   # .../LPNE (this file lives in Scripts/)
 RUNS_DIR = PROJECT / 'Scripts' / 'runs'
-MODEL_OUTPUT_DIR = PROJECT / 'Data' / 'ModelOutput'
+MODEL_OUTPUT_DIR = PROJECT / 'Data' / 'EmulatorOutput'   # exported rollouts (standardplots.export_rollout)
 
 # GPR table written by running obs.py directly: 1 ka grid, 0-5320 ka. Per record (obs.py source key) a GPR
 # mean column <key> and a GPR variance column Variance_<key>, plus the insolation records (no variance).
