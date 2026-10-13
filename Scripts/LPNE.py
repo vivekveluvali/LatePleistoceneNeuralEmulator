@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras import layers, Model
+import run_config as rc
 
 ## Set up functions
 def set_seeds(seed=42):
@@ -35,6 +36,15 @@ def create_std_windows(std, window_size, rollout_length):
     std_future = np.array([std[i + window_size: i + window_size + rollout_length] for i in range(n_windows)])
     return std_init, std_future
 
+def prepare_data(cfg):
+    """Load, split and scale the record described by cfg, and cut it into training / validation windows."""
+    splits = rc.split_data(rc.load_data(cfg), cfg)
+    scaler, train, valid, _ = rc.fit_and_transform_splits(splits)
+    X_tr, y_tr, I_tr = create_windows(train, cfg['window_size'], cfg['rollout_length'])
+    X_va, y_va, I_va = create_windows(valid, cfg['window_size'], cfg['rollout_length_validation'])
+    return {'splits': splits, 'scaler': scaler,
+            'train': ([X_tr, I_tr], y_tr), 'valid': ([X_va, I_va], y_va)}
+
 ## Function encoding actual model architecture
 def CNN_model(window_size, n_features, params):
     """
@@ -44,7 +54,7 @@ def CNN_model(window_size, n_features, params):
     window_size  - input window size
     n_features   - number of input variables (here set to 4 for X,Y,Z,Insol)
     params       - hyperparameter dict with keys 'conv filters', 'conv kernel',
-                   'dense unit', 'dropout rate' (see run_config.DATASETS)
+                   'dense unit', 'dropout rate' (see run_config.DEFAULT_PARAMS)
 
     """
     # layer names are pinned explicitly so save_weights()/load_weights() - which

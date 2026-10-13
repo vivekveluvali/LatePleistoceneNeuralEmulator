@@ -7,6 +7,7 @@ from scipy.interpolate import interp1d
 from sklearn.preprocessing import StandardScaler
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import Matern, WhiteKernel
+import run_config as rc
 
 print('imports done')
 
@@ -65,8 +66,8 @@ NAMES = {
     'co2_Hon': 'pCO2water_SST_wet[µatm](constantAlkalinity_Calculated)',
     'co2_Yam': 'Est_CO2_linear',
 
-    'insol_huy06': 'ISI_thresh0Wm2',
-    'insol_ber90': 'Q65N_solstice_raw',
+    'insol_huy06': rc.INSOL_COLS['insol_huy06'],
+    'insol_ber90': rc.INSOL_COLS['insol_ber90'],
 }
 
 # deterministic forcing records: never GP-regressed, and usable as SM90 forcing

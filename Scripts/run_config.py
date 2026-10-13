@@ -10,7 +10,7 @@ the same `best_state_space_model.weights.h5`. This module is the single source
 of truth for all of that, so the two notebooks cannot drift apart:
 
   * `make_config(...)`  -> a dict describing one run (parameter set, insolation record,
-                           age span, split, seed, window/rollout lengths) + a
+                           training start / split, seed, window/rollout lengths) + a
                            deterministic `run_tag` derived from those settings
   * `load_data(cfg)`    -> obs dataframe from GPR_CSV, ALWAYS ordered oldest -> youngest
   * `split_data(...)`   -> test / trainval / train / validation arrays
@@ -22,8 +22,8 @@ Each run lives in its own folder:
     Scripts/runs/<run_tag>/model.weights.h5
     Scripts/runs/<run_tag>/config.json      (all settings + scaler mean/scale)
 
-The run_tag is  <dataset>_seed<seed>_<8-char hash of all settings>, so changing
-the dataset, split, hyperparameters or seed automatically gives a new folder,
+The run_tag is  <train_start>_seed<seed>_<insol>_<8-char hash of all settings>, so changing
+the training start, split, hyperparameters, insolation or seed automatically gives a new folder,
 and re-running the exact same settings reuses (overwrites) the same folder.
 """
 
@@ -35,6 +35,9 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
+####################
+#### File Names ####
+####################
 PROJECT = Path(__file__).resolve().parents[1]   # .../LPNE (this file lives in Scripts/)
 RUNS_DIR = PROJECT / 'Scripts' / 'runs'
 MODEL_OUTPUT_DIR = PROJECT / 'Data' / 'EmulatorOutput'   # exported rollouts (standardplots.export_rollout)
@@ -44,26 +47,16 @@ MODEL_OUTPUT_DIR = PROJECT / 'Data' / 'EmulatorOutput'   # exported rollouts (st
 # Each record's columns are NaN past its oldest sample.
 GPR_CSV = PROJECT / 'Data' / 'InterpolatedObs' / 'gpr_5320.0kaBP.csv'
 
+##################################
+#### Important Variable Names ####
+##################################
 AGE_COL = 'Age[kaBP]'
 # state variables X, Y, Z (columns of GPR_CSV), in that order
+# recall that it's ice sheet volume, CO2, and deep ocean temperature
 STATE_RECORDS = ['dO18_LR04', 'co2_Yam', 'MgCa_Eld']
 VAR_COLS = [f'Variance_{r}' for r in STATE_RECORDS]
-# insolation forcing options -> column in GPR_CSV (same as obs.NAMES; obs imports this module, so it
-# can't be imported here)
+# insolation forcing options -> column in GPR_CSV (imported by obs.py in obs.NAMES)
 INSOL_COLS = {'insol_huy06': 'ISI_thresh0Wm2', 'insol_ber90': 'Q65N_solstice_raw'}
-
-# parameter-set name -> the Optuna-tuned hyperparameters. Each name is the oldest age [ka] of the record the
-# set was tuned on, which make_config uses as the default max_age.
-DATASETS = {
-    '1243ka': {'conv filters': 32, 'conv kernel': 9, 'dense unit': 10,
-               'dropout rate': 0.2632450164100955, 'learning rate': 0.0005192120606179918,
-               'dwt gamma': 0.3818453319933549, 'dwt beta': 0.21402907131795812,
-               'dwt eps': 3.61758437807838e-08, 'dwt levels': 3},
-    '1461ka': {'conv filters': 16, 'conv kernel': 9, 'dense unit': 21,
-               'dropout rate': 0.24199127728779032, 'learning rate': 0.0008599275973935869,
-               'dwt gamma': 0.4016606625962723, 'dwt beta': 0.4538313866456523,
-               'dwt eps': 1.5028933889868065e-06, 'dwt levels': 2},
-}
 
 # runs trained before GPR_CSV existed stored a 'csv' path in their config.json; load_data reads those
 # files with these column names, mapped onto the GPR_CSV names (stds are squared into variances)
@@ -85,43 +78,78 @@ COLORS = {
     "Z":"limegreen",
 }
 
+
+##########################
+#### Important Numbers ###
+##########################
+NFEATURES = 4
+
+# default parameter set
+DEFAULT_PARAMS = {
+            'conv filters': 16, 'conv kernel': 9, 'dense unit': 21,
+            'dropout rate': 0.24199127728779032, 'learning rate': 0.0008599275973935869,
+            'dwt gamma': 0.4016606625962723, 'dwt beta': 0.4538313866456523,
+            'dwt eps': 1.5028933889868065e-06, 'dwt levels': 2,
+}
+
+DATASET = '1461ka'
+
+STARTS = {
+    'early': int(1350),
+    'mid': int(1170),
+    'late': int(800),
+    'default': None, # use default 80:20 train:test split
+}
+
 # ----------------------------------------------------------------------------
 # configuration
 # ----------------------------------------------------------------------------
-def make_config(dataset, seed=42, params=None, insol='insol_huy06', max_age=None,
-                test_frac=0.2, train_frac=0.8, test_size=None,
+def make_config(dataset = DATASET, seed=42, params=DEFAULT_PARAMS, insol='insol_huy06', max_age=None,
+                train_start='default', train_frac=0.8, valid_frac=0.2,
                 timestep=1, window_kyr=50, rollout_kyr=32, vali_rollout_kyr=128,
                 noise_level=1e-2, acf_threshold=0.97, epochs=100, batch_size=64):
     """
     Build the config dict for one run.
 
-    dataset    - key of DATASETS ('1243ka' or '1461ka')
-    params     - hyperparameter dict; None -> the tuned set stored in DATASETS[dataset].
+    dataset     - the size of the dataset in ka; defaults to 1461, but if longer datasets become availble, can be changed. 
+    params      - hyperparameter dictionary. Defaults to DEFAULT_PARAMS. 
                  Pass another dataset's params here to swap hyperparameters.
-    insol      - insolation forcing, a key of INSOL_COLS ('insol_huy06' = Huybers 2006 ISI,
+    insol       - insolation forcing, a key of INSOL_COLS ('insol_huy06' = Huybers 2006 ISI,
                  'insol_ber90' = Berger 1990 65N June-solstice insolation)
-    max_age    - oldest age [ka] used from GPR_CSV; None -> the age in the dataset name (1243 or 1461)
-    test_frac  - fraction of the record (oldest end) held out as test set
-    test_size  - optional explicit number of test rows; overrides test_frac
-                 (e.g. test_size=461 reproduces the old hard-coded split)
+    max_age     - oldest age [ka] used from GPR_CSV; None -> the age in the dataset name (see 
+                 dataset). Can use to cut the dataset to arbitrary lengths. 
+    train_start - key of STARTS ('early', 'mid', 'late' or 'default'). A named start fixes the age [ka]
+                 training+validation begins at; 'default' -> train_frac takes over.
+    train_frac  - fraction of the record used for training+validation (youngest end) when
+                 train_start='default'; the oldest remainder is the test set.
+    valid_frac  - fraction of training+validation held out (youngest end) as validation set; raised
+                 if needed so the validation set holds at least one validation window.
+
+    cfg['train_size'] (rows of training+validation) is what split_data uses; it comes from train_start if
+    one is named, otherwise from train_frac. cfg['train_frac'] is recomputed from it, for reference.
     """
-    if dataset not in DATASETS:
-        raise KeyError(f"unknown dataset {dataset!r}; choose from {list(DATASETS)}")
+    if train_start not in STARTS:
+        raise KeyError(f"unknown training start {train_start!r}; choose from {list(STARTS)}")
     if insol not in INSOL_COLS:
         raise KeyError(f"unknown insolation record {insol!r}; choose from {list(INSOL_COLS)}")
-    params = dict(DATASETS[dataset] if params is None else params)
     max_age = float(dataset.removesuffix('ka')) if max_age is None else float(max_age)
 
+    # training+validation size: a named start takes precedence over train_frac
+    train_size = STARTS[train_start] if STARTS[train_start] is not None else int(float(train_frac) * max_age)
+    if not 0 < train_size <= max_age:
+        raise ValueError(f"training start {train_size} ka lies outside the record (0-{max_age:.0f} ka)")
+
     cfg = {
-        'dataset': dataset,
+        'training_start': STARTS[train_start],
         'insol': insol,
         'max_age': max_age,
 
         'params': params,
         'seed': int(seed),
-        'test_frac': float(test_frac),
-        'train_frac': float(train_frac),
-        'test_size': None if test_size is None else int(test_size),
+        'train_size': train_size,
+        'train_frac': train_size / max_age,
+        'test_size': int(max_age) - train_size,
+        'valid_frac': float(valid_frac),
         'timestep': timestep,
 
         'window_size': int(window_kyr / timestep),
@@ -134,7 +162,7 @@ def make_config(dataset, seed=42, params=None, insol='insol_huy06', max_age=None
         'batch_size': batch_size,
     }
     digest = hashlib.sha1(json.dumps(cfg, sort_keys=True).encode()).hexdigest()[:8]
-    cfg['run_tag'] = f"{dataset}_seed{seed}_{digest}"
+    cfg['run_tag'] = f"{train_start}_seed{seed}_{insol}_{digest}"
     return cfg
 
 
@@ -191,9 +219,10 @@ def split_data(df, cfg):
     Split an oldest->youngest dataframe into:
       test       - the oldest `test_size` rows
       (1-row buffer)
-      trainval   - everything younger than that
-      train      - oldest `train_frac` of trainval
-      validation - youngest remainder of trainval
+      trainval   - everything younger than that (`train_size` rows)
+      train      - oldest (1 - valid_frac) of trainval
+      validation - youngest valid_frac of trainval, but at least enough rows for one validation window
+                   (window_size + rollout_length_validation + 1, see LPNE.create_windows)
     Returns a dict of numpy arrays (state columns incl. insolation as last column). The GPR standard
     deviations of the three state variables (sqrt of VAR_COLS, unscaled) are split the same way under
     '<split>_std'.
@@ -202,11 +231,21 @@ def split_data(df, cfg):
     S = np.sqrt(df[VAR_COLS].to_numpy(dtype=float))
     t = df[AGE_COL].to_numpy(dtype=float)
 
-    n_total = A.shape[0]
-    test_size = cfg['test_size'] if cfg.get('test_size') is not None else int(round(cfg['test_frac'] * n_total))
-
+    test_size = cfg['test_size']
+    if test_size is None:   # legacy configs
+        test_size = int(round(cfg['test_frac'] * A.shape[0]))
     trainval, trainval_time, trainval_std = A[test_size + 1:], t[test_size + 1:], S[test_size + 1:]
-    train_end = int(round(cfg['train_frac'] * trainval.shape[0]))
+    n_trainval = trainval.shape[0]
+
+    if 'train_size' in cfg:
+        min_valid = cfg['window_size'] + cfg['rollout_length_validation'] + 1
+        n_valid = max(int(round(cfg['valid_frac'] * n_trainval)), min_valid)
+        train_end = n_trainval - n_valid
+    else:   # configs of runs trained before train_size existed: train_frac split trainval into train/validation
+        train_end = int(round(cfg['train_frac'] * n_trainval))
+    if train_end <= 0:
+        raise ValueError(f"training+validation set ({n_trainval} rows) is too short for a training and a "
+                         f"validation set")
 
     return {
         'full': A, 'full_std': S, 'time': t,
@@ -286,18 +325,19 @@ def load_run(run_tag):
     return cfg, scaler_from_config(cfg), p
 
 
-def list_runs(dataset=None):
-    """Run tags that have trained weights, newest first."""
+def list_runs(train_start=None):
+    """Run tags that have trained weights, newest first; train_start (a key of STARTS) keeps only runs with that start."""
     if not RUNS_DIR.exists():
         return []
     runs = [d for d in RUNS_DIR.iterdir()
             if (d / 'config.json').exists() and (d / 'model.weights.h5').exists()
-            and (dataset is None or d.name.startswith(dataset + '_'))]
+            and (train_start is None or d.name.startswith(train_start + '_'))]
     return [d.name for d in sorted(runs, key=lambda d: (d / 'model.weights.h5').stat().st_mtime, reverse=True)]
 
 
-def latest_run(dataset):
-    runs = list_runs(dataset)
+def latest_run(train_start=None):
+    runs = list_runs(train_start)
     if not runs:
-        raise FileNotFoundError(f"no trained runs for {dataset!r} in {RUNS_DIR} - train one with DWT-LPNE first")
+        raise FileNotFoundError(f"no trained runs for training start {train_start!r} in {RUNS_DIR} - "
+                                f"train one with TestRollouts first")
     return runs[0]
