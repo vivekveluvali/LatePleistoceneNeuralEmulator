@@ -17,6 +17,7 @@ Data/InterpolatedObs/
 Data/Observations/
 Data/SM90/
 Data/SM90_altstep/
+Data/EmulatorOutput
 
 # manual backups (git replaces these)
 Archive/_backup_*/
