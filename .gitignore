@@ -22,5 +22,9 @@ Data/SM90_altstep/
 Archive/_backup_*/
 Archive/Old_SM90_Runs
 
+# certain optimization records
+Scripts/runs/_optuna/studies.db
+*_executed.ipynb
+
 # scratch
 Claude outputs/

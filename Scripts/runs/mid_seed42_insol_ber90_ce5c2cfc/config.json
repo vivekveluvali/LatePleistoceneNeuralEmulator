@@ -1,0 +1,56 @@
+{
+  "training_start": 1170,
+  "insol": "insol_ber90",
+  "max_age": 1461.0,
+  "params": {
+    "conv filters": 30,
+    "conv kernel": 10,
+    "dense unit": 28,
+    "dropout rate": 0.3353763108415839,
+    "learning rate": 0.00038902232764492545,
+    "dwt gamma": 0.6506584806454648,
+    "dwt beta": 0.4637125670415251,
+    "dwt eps": 4.1664542731895874e-06,
+    "dwt levels": 2
+  },
+  "seed": 42,
+  "train_size": 1170,
+  "train_frac": 0.8008213552361396,
+  "test_size": 291,
+  "valid_frac": 0.2,
+  "timestep": 1,
+  "window_size": 100,
+  "rollout_length": 32,
+  "rollout_length_validation": 128,
+  "noise_level": 0.01,
+  "acf_threshold": 0.97,
+  "epochs": 100,
+  "batch_size": 64,
+  "run_tag": "mid_seed42_insol_ber90_ce5c2cfc",
+  "scaler_mean": [
+    4.101832546486453,
+    223.50501833013087,
+    0.026400692475884373,
+    494.8915972277008
+  ],
+  "scaler_scale": [
+    0.40399280685811195,
+    21.119446986738563,
+    0.6413935180078961,
+    23.41043627795582
+  ],
+  "split_ages": {
+    "test": [
+      1461.0,
+      1171.0
+    ],
+    "train": [
+      1169.0,
+      284.0
+    ],
+    "validation": [
+      283.0,
+      0.0
+    ]
+  }
+}
