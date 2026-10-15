@@ -238,7 +238,7 @@ def split_data(df, cfg):
     n_trainval = trainval.shape[0]
 
     if 'train_size' in cfg:
-        min_valid = cfg['window_size'] + cfg['rollout_length_validation'] + 1
+        min_valid = cfg['window_size'] + cfg['rollout_length_validation'] + 56
         n_valid = max(int(round(cfg['valid_frac'] * n_trainval)), min_valid)
         train_end = n_trainval - n_valid
     else:   # configs of runs trained before train_size existed: train_frac split trainval into train/validation

@@ -160,7 +160,7 @@ def export_rollout(rollout_data, name, time=None, scaler=None):
 
 def plot_rollout(model, data, time, window_size, flag = False, rollout_data = None,
             colors = [["#D6195E","#FFB600"],["#1E88E5","#6519C5"],["#05EFC5","#8DB1A7"]],
-            insol_color = "coral"):
+            insol_color = "coral", boundary = None, boundary_label = "test  |  train / validation"):
     '''
         model         -   trained RolloutEmulator
         data          -   scaled ground truth; columns X, Y, Z, Insolation
@@ -171,6 +171,9 @@ def plot_rollout(model, data, time, window_size, flag = False, rollout_data = No
                           (slow) rollout isn't redone for every plot
         colors        -   colormap for plots
         insol_color   -   color of the insolation panel
+        boundary      -   optional time [ka] to mark with a vertical dotted line on every panel, e.g. the
+                          boundary between the test period and the train/validation period; off by default
+        boundary_label -  text written above the boundary line on the top panel
 
         plots X, Y, Z (emulator vs. data) and, in a fourth panel, the scaled insolation forcing
         that drove the rollout
@@ -227,6 +230,12 @@ def plot_rollout(model, data, time, window_size, flag = False, rollout_data = No
                 axs[i].legend(loc='upper left', fontsize=14)
 
             overall_ma_rmse = np.sqrt(mean_squared_error(data[window_size:leng, 0:3], moving_avg[window_size:leng, 0:3]))
+
+        if boundary is not None:
+            for ax in axs:
+                ax.axvline(boundary, color='black', linestyle=':', lw=2)
+            axs[0].annotate(boundary_label, xy=(boundary, 1.0), xycoords=('data', 'axes fraction'),
+                            xytext=(0, 6), textcoords='offset points', ha='center', va='bottom', fontsize=14)
 
         # the panels share one x-axis, so invert it once (each call flips it)
         axs[-1].invert_xaxis()
