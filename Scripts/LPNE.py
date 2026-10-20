@@ -10,7 +10,17 @@ def set_seeds(seed=42):
     # only relevant if calculation is done on GPU
     tf.config.experimental.enable_op_determinism()
 
-def create_windows(data, window_size, rollout_length):
+def create_windows(data, window_size, rollout_length, segments=None):
+    '''
+        segments  -  optional list of (start, stop) row ranges of data that are each contiguous in time (e.g.
+                     run_config.split_data's 'train_segments', when validation is cut out of the middle of
+                     training+validation). Windows are cut from each range separately, so none spans a gap.
+                     None -> data is one contiguous record
+    '''
+    if segments is not None:
+        parts = [create_windows(data[a:b], window_size, rollout_length) for a, b in segments]
+        parts = [p for p in parts if len(p[0])]
+        return tuple(np.concatenate([p[k] for p in parts]) for k in range(3))
     X_list, y_list, Insol_rollout_list = [], [], []
     for i in range(len(data) - window_size - rollout_length):
         X_list.append(data[i:i + window_size,:])
@@ -19,7 +29,7 @@ def create_windows(data, window_size, rollout_length):
 
     return np.array(X_list), np.array(y_list), np.array(Insol_rollout_list)
 
-def create_std_windows(std, window_size, rollout_length):
+def create_std_windows(std, window_size, rollout_length, segments=None):
     '''
         std             -  (n, 3) GPR standard deviations of X, Y, Z, already in scaled units
                            (run_config.scale_std), row-aligned with the data passed to create_windows
@@ -30,7 +40,12 @@ def create_std_windows(std, window_size, rollout_length):
         (n_windows, rollout_length, 3): the std for every state value in the matching
         create_windows input window and target. Passed to RolloutEmulator as extra inputs
         so it can draw GPR noise (see AREmulator.RolloutEmulator._gp_perturb).
+        segments        -  same as create_windows
     '''
+    if segments is not None:
+        parts = [create_std_windows(std[a:b], window_size, rollout_length) for a, b in segments]
+        parts = [p for p in parts if len(p[0])]
+        return tuple(np.concatenate([p[k] for p in parts]) for k in range(2))
     n_windows = len(std) - window_size - rollout_length
     std_init = np.array([std[i:i + window_size] for i in range(n_windows)])
     std_future = np.array([std[i + window_size: i + window_size + rollout_length] for i in range(n_windows)])
@@ -40,7 +55,8 @@ def prepare_data(cfg):
     """Load, split and scale the record described by cfg, and cut it into training / validation windows."""
     splits = rc.split_data(rc.load_data(cfg), cfg)
     scaler, train, valid, _ = rc.fit_and_transform_splits(splits)
-    X_tr, y_tr, I_tr = create_windows(train, cfg['window_size'], cfg['rollout_length'])
+    X_tr, y_tr, I_tr = create_windows(train, cfg['window_size'], cfg['rollout_length'],
+                                      segments=splits['train_segments'])
     X_va, y_va, I_va = create_windows(valid, cfg['window_size'], cfg['rollout_length_validation'])
     return {'splits': splits, 'scaler': scaler,
             'train': ([X_tr, I_tr], y_tr), 'valid': ([X_va, I_va], y_va)}

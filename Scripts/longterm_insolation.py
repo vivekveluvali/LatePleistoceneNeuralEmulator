@@ -2,9 +2,13 @@
 Long-term 65N integrated insolation (Huybers-style ISI) from the Laskar et al. (2004)
 orbital solution, for forcing emulator rollouts beyond the observational record.
 
+Also 65N June-solstice insolation (the Laskar counterpart of the Berger 1990 'insol_ber90' record), which
+run_config uses as the 'insol_la04' insolation record.
+
 Usage (from a notebook):
     import longterm_insolation as li
     years, long_R = li.compute_long_insolation(start_kaBP=1462, end_kyr=10000)
+    Q = li.solstice_insolation(np.arange(-1461, 10001))   # kyr from J2000, negative = past
 
 or from the command line, to compute once and cache to Data/:
     python longterm_insolation.py
@@ -29,6 +33,31 @@ def load_la2004(path=LA2004_CSV):
     goes back to -5000 kyr and has NO future (kyear > 0) values at all.
     """
     return pd.read_csv(path, comment='#', header=None, names=['t', 'ecc', 'obliq', 'varpi'])
+
+
+def solstice_insolation(t_kyr, lat=65, la2004=None):
+    """
+    Daily-mean insolation [W/m2] at latitude `lat` on the June solstice (solar longitude 90 deg), at times
+    t_kyr [kyr from J2000; negative = past, positive = future] from the Laskar et al. (2004) solution.
+    Laskar counterpart of the Berger (1990) Q65N_solstice_raw record (r = 0.98 with it over 0-1461 ka).
+    Vectorized: one climlab call for all times.
+    """
+    if la2004 is None:
+        la2004 = load_la2004()
+    t_kyr = np.asarray(t_kyr, dtype=float)
+    if t_kyr.min() < la2004['t'].min() or t_kyr.max() > la2004['t'].max():
+        raise ValueError(f"times must lie within the Laskar 2004 solution ({la2004['t'].min():.0f} to "
+                         f"{la2004['t'].max():.0f} kyr)")
+
+    # interpolated in radians (varpi is continuous in the source file), then converted to degrees and wrapped
+    # to [0, 360), as in compute_long_insolation
+    orb = {
+        'ecc': np.interp(t_kyr, la2004['t'], la2004['ecc']),
+        'obliquity': np.degrees(np.interp(t_kyr, la2004['t'], la2004['obliq'])),
+        'long_peri': np.degrees(np.interp(t_kyr, la2004['t'], la2004['varpi'])) % 360,
+    }
+    # day_type=2: `day` is the solar longitude [deg], so 90 is the June solstice exactly in every year
+    return np.asarray(daily_insolation(lat=lat, day=90, orb=orb, day_type=2), dtype=float).reshape(t_kyr.shape)
 
 
 def compute_long_insolation(start_kaBP=1462, end_kyr=10000, lat=65, tau=0, la2004=None):

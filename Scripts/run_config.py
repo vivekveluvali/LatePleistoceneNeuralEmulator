@@ -56,7 +56,12 @@ AGE_COL = 'Age[kaBP]'
 STATE_RECORDS = ['dO18_LR04', 'co2_Yam', 'MgCa_Eld']
 VAR_COLS = [f'Variance_{r}' for r in STATE_RECORDS]
 # insolation forcing options -> column in GPR_CSV (imported by obs.py in obs.NAMES)
-INSOL_COLS = {'insol_huy06': 'ISI_thresh0Wm2', 'insol_ber90': 'Q65N_solstice_raw'}
+INSOL_COLS = {'insol_huy06': 'ISI_thresh0Wm2', 'insol_ber90': 'Q65N_solstice_raw',
+              'insol_la04': 'Q65N_solstice_la04'}
+# insolation records that are not stored in GPR_CSV: load_data computes them on the fly instead.
+# insol_la04 = Laskar et al. (2004) 65N June-solstice insolation (longterm_insolation.solstice_insolation),
+# which also covers the future (to +21 Ma), so it can force rollouts past the present
+COMPUTED_INSOL = {'insol_la04'}
 
 # runs trained before GPR_CSV existed stored a 'csv' path in their config.json; load_data reads those
 # files with these column names, mapped onto the GPR_CSV names (stds are squared into variances)
@@ -94,17 +99,30 @@ DEFAULT_PARAMS = {
 
 DATASET = '1461ka'
 
-STARTS = {
+STARTS = {   # age [ka] training+validation begins at (the oldest training age); older rows are the test set
     'early': int(1350),
     'mid': int(1170),
     'late': int(800),
+    'balanced': int(1461),   # whole oldest end, so no test set; ends at TRAIN_ENDS['balanced']
     'default': None, # use default 80:20 train:test split
+}
+# age [ka] training+validation ends at (the youngest training age), for starts that don't train up to the present;
+# younger rows are held out (split_data's 'holdout' split). 'balanced' trains on 1461-579 ka: ~260 kyr of
+# early Pleistocene (1461-1200 ka), the MPT (1200-800 ka) and ~220 kyr of late Pleistocene (800-579 ka)
+TRAIN_ENDS = {
+    'balanced': int(579),
+}
+# age [ka] the validation block is centred on, for starts that don't validate on the youngest end of
+# training+validation. 'balanced' validates on the MPT, so training keeps both the early (1461-1200 ka) and the
+# late (800-579 ka) Pleistocene; training is then two pieces (split_data's 'train_segments')
+VALID_CENTERS = {
+    'balanced': int(1000),
 }
 
 # ----------------------------------------------------------------------------
 # configuration
 # ----------------------------------------------------------------------------
-def make_config(dataset = DATASET, seed=42, params=DEFAULT_PARAMS, insol='insol_huy06', max_age=None,
+def make_config(dataset = DATASET, seed=42, params=DEFAULT_PARAMS, insol='insol_ber90', max_age=None,
                 train_start='default', train_frac=0.8, valid_frac=0.2,
                 timestep=1, window_kyr=50, rollout_kyr=32, vali_rollout_kyr=128,
                 noise_level=1e-2, acf_threshold=0.97, epochs=100, batch_size=64):
@@ -115,18 +133,22 @@ def make_config(dataset = DATASET, seed=42, params=DEFAULT_PARAMS, insol='insol_
     params      - hyperparameter dictionary. Defaults to DEFAULT_PARAMS. 
                  Pass another dataset's params here to swap hyperparameters.
     insol       - insolation forcing, a key of INSOL_COLS ('insol_huy06' = Huybers 2006 ISI,
-                 'insol_ber90' = Berger 1990 65N June-solstice insolation)
+                 'insol_ber90' = Berger 1990 65N June-solstice insolation, 'insol_la04' = Laskar 2004
+                 65N June-solstice insolation, computed on the fly; see COMPUTED_INSOL)
     max_age     - oldest age [ka] used from GPR_CSV; None -> the age in the dataset name (see 
                  dataset). Can use to cut the dataset to arbitrary lengths. 
-    train_start - key of STARTS ('early', 'mid', 'late' or 'default'). A named start fixes the age [ka]
-                 training+validation begins at; 'default' -> train_frac takes over.
+    train_start - key of STARTS ('early', 'mid', 'late', 'balanced' or 'default'). A named start fixes the age
+                 [ka] training+validation begins at; 'default' -> train_frac takes over. A start listed in
+                 TRAIN_ENDS also stops training+validation at that age ('balanced': 1461-579 ka, no test set).
     train_frac  - fraction of the record used for training+validation (youngest end) when
                  train_start='default'; the oldest remainder is the test set.
     valid_frac  - fraction of training+validation held out (youngest end) as validation set; raised
                  if needed so the validation set holds at least one validation window.
 
-    cfg['train_size'] (rows of training+validation) is what split_data uses; it comes from train_start if
-    one is named, otherwise from train_frac. cfg['train_frac'] is recomputed from it, for reference.
+    cfg['test_size'] (rows older than training+validation) is what split_data uses; it comes from train_start if
+    one is named, otherwise from train_frac. cfg['train_size'] is the span of training+validation [kyr] and
+    cfg['train_frac'] its fraction of the record, for reference. cfg['training_end'] is only set for starts in
+    TRAIN_ENDS (so the configs, and run tags, of the other starts are unchanged).
     """
     if train_start not in STARTS:
         raise KeyError(f"unknown training start {train_start!r}; choose from {list(STARTS)}")
@@ -134,10 +156,16 @@ def make_config(dataset = DATASET, seed=42, params=DEFAULT_PARAMS, insol='insol_
         raise KeyError(f"unknown insolation record {insol!r}; choose from {list(INSOL_COLS)}")
     max_age = float(dataset.removesuffix('ka')) if max_age is None else float(max_age)
 
-    # training+validation size: a named start takes precedence over train_frac
-    train_size = STARTS[train_start] if STARTS[train_start] is not None else int(float(train_frac) * max_age)
-    if not 0 < train_size <= max_age:
-        raise ValueError(f"training start {train_size} ka lies outside the record (0-{max_age:.0f} ka)")
+    # training+validation span: a named start takes precedence over train_frac; it runs to the present unless
+    # the start has an end age in TRAIN_ENDS
+    start_age = STARTS[train_start] if STARTS[train_start] is not None else int(float(train_frac) * max_age)
+    end_age = TRAIN_ENDS.get(train_start, 0)
+    if not 0 < start_age <= max_age:
+        raise ValueError(f"training start {start_age} ka lies outside the record (0-{max_age:.0f} ka)")
+    if not 0 <= end_age < start_age:
+        raise ValueError(f"training end {end_age} ka must lie between the present and the training start "
+                         f"({start_age} ka)")
+    train_size = start_age - end_age
 
     cfg = {
         'training_start': STARTS[train_start],
@@ -148,7 +176,7 @@ def make_config(dataset = DATASET, seed=42, params=DEFAULT_PARAMS, insol='insol_
         'seed': int(seed),
         'train_size': train_size,
         'train_frac': train_size / max_age,
-        'test_size': int(max_age) - train_size,
+        'test_size': int(max_age) - start_age,
         'valid_frac': float(valid_frac),
         'timestep': timestep,
 
@@ -161,6 +189,11 @@ def make_config(dataset = DATASET, seed=42, params=DEFAULT_PARAMS, insol='insol_
         'epochs': epochs,
         'batch_size': batch_size,
     }
+    # only added when set, so the configs (and run tags) of the other starts don't change
+    if end_age:
+        cfg['training_end'] = end_age
+    if train_start in VALID_CENTERS:
+        cfg['validation_center'] = VALID_CENTERS[train_start]
     digest = hashlib.sha1(json.dumps(cfg, sort_keys=True).encode()).hexdigest()[:8]
     cfg['run_tag'] = f"{train_start}_seed{seed}_{insol}_{digest}"
     return cfg
@@ -187,6 +220,19 @@ def state_cols(cfg):
     return STATE_RECORDS + [INSOL_COLS[cfg.get('insol', 'insol_huy06')]]
 
 
+def add_computed_insolation(df, insol):
+    """
+    Copy of df with the insolation record `insol` (a key of COMPUTED_INSOL) added as column INSOL_COLS[insol],
+    computed at every row's age. Nothing is written to disk.
+    """
+    if insol != 'insol_la04':
+        raise KeyError(f"no computation defined for insolation record {insol!r}")
+    import longterm_insolation as li   # imported here: it needs climlab, which the stored records don't
+    df = df.copy()
+    df[INSOL_COLS[insol]] = li.solstice_insolation(-df[AGE_COL].to_numpy(dtype=float))   # age [ka BP] -> kyr from J2000
+    return df
+
+
 def load_data(cfg):
     """
     Observational dataframe ordered OLDEST -> YOUNGEST (row 0 = oldest age), with columns AGE_COL,
@@ -204,6 +250,8 @@ def load_data(cfg):
     else:
         df = pd.read_csv(GPR_CSV, index_col=0)
         max_age = cfg['max_age']
+        if cfg.get('insol') in COMPUTED_INSOL:
+            df = add_computed_insolation(df, cfg['insol'])
 
     cols = [AGE_COL] + state_cols(cfg) + VAR_COLS
     df = df.loc[df[AGE_COL] <= max_age, cols]
@@ -217,12 +265,16 @@ def load_data(cfg):
 def split_data(df, cfg):
     """
     Split an oldest->youngest dataframe into:
-      test       - the oldest `test_size` rows
-      (1-row buffer)
-      trainval   - everything younger than that (`train_size` rows)
-      train      - oldest (1 - valid_frac) of trainval
-      validation - youngest valid_frac of trainval, but at least enough rows for one validation window
-                   (window_size + rollout_length_validation + 1, see LPNE.create_windows)
+      test       - the oldest `test_size` rows (empty if test_size = 0, e.g. the 'balanced' start)
+      (1-row buffer, only if there is a test set)
+      trainval   - everything younger than that, down to cfg['training_end'] if set (else the present)
+      holdout    - the rows younger than cfg['training_end'] (empty if it isn't set): in neither set
+      train      - the rest of trainval
+      validation - valid_frac of trainval, but at least enough rows for one validation window
+                   (window_size + rollout_length_validation + 1, see LPNE.create_windows): the youngest end,
+                   or a block centred on cfg['validation_center'] if set, which leaves train in two pieces
+    'train_segments' lists the (start, stop) rows of 'train' that are contiguous in time; pass it to
+    LPNE.create_windows(..., segments=) so no training window spans the validation block.
     Returns a dict of numpy arrays (state columns incl. insolation as last column). The GPR standard
     deviations of the three state variables (sqrt of VAR_COLS, unscaled) are split the same way under
     '<split>_std'.
@@ -234,7 +286,9 @@ def split_data(df, cfg):
     test_size = cfg['test_size']
     if test_size is None:   # legacy configs
         test_size = int(round(cfg['test_frac'] * A.shape[0]))
-    trainval, trainval_time, trainval_std = A[test_size + 1:], t[test_size + 1:], S[test_size + 1:]
+    first = test_size + 1 if test_size > 0 else 0                          # skip the buffer row after a test set
+    last = A.shape[0] - int(np.sum(t < cfg.get('training_end', 0)))     # rows younger than training_end held out
+    trainval, trainval_time, trainval_std = A[first:last], t[first:last], S[first:last]
     n_trainval = trainval.shape[0]
 
     if 'train_size' in cfg:
@@ -247,13 +301,25 @@ def split_data(df, cfg):
         raise ValueError(f"training+validation set ({n_trainval} rows) is too short for a training and a "
                          f"validation set")
 
+    # validation rows [v0, v1) of trainval: the youngest end, or a block centred on validation_center
+    v0, v1 = train_end, n_trainval
+    if cfg.get('validation_center') is not None:
+        n_valid = n_trainval - train_end
+        centre = int(np.argmin(np.abs(trainval_time - cfg['validation_center'])))
+        v0 = min(max(centre - n_valid // 2, 0), n_trainval - n_valid)
+        v1 = v0 + n_valid
+    train_idx = np.r_[0:v0, v1:n_trainval]
+    train_segments = [(a, b) for a, b in [(0, v0), (v0, v0 + n_trainval - v1)] if b > a]
+
     return {
         'full': A, 'full_std': S, 'time': t,
         'test': A[:test_size], 'test_time': t[:test_size], 'test_std': S[:test_size],
         'trainval': trainval, 'trainval_time': trainval_time, 'trainval_std': trainval_std,
-        'train': trainval[:train_end], 'train_time': trainval_time[:train_end], 'train_std': trainval_std[:train_end],
-        'validation': trainval[train_end:], 'validation_time': trainval_time[train_end:],
-        'validation_std': trainval_std[train_end:],
+        'train': trainval[train_idx], 'train_time': trainval_time[train_idx], 'train_std': trainval_std[train_idx],
+        'train_segments': train_segments,
+        'validation': trainval[v0:v1], 'validation_time': trainval_time[v0:v1],
+        'validation_std': trainval_std[v0:v1],
+        'holdout': A[last:], 'holdout_time': t[last:], 'holdout_std': S[last:],
         'test_size': test_size, 'train_end': train_end,
     }
 
@@ -267,10 +333,15 @@ def scale_std(std, scaler):
 
 
 def describe_split(s):
-    rng = lambda a: f"{a.max():.0f}-{a.min():.0f} ka"
-    return (f"test: {s['test'].shape} ({rng(s['test_time'])}) | "
-            f"train: {s['train'].shape} ({rng(s['train_time'])}) | "
-            f"validation: {s['validation'].shape} ({rng(s['validation_time'])})")
+    rng = lambda a: f"{a.max():.0f}-{a.min():.0f} ka" if a.size else "none"
+    segs = s.get('train_segments', [(0, len(s['train_time']))])
+    train_rng = " + ".join(rng(s['train_time'][a:b]) for a, b in segs)
+    out = (f"test: {s['test'].shape} ({rng(s['test_time'])}) | "
+           f"train: {s['train'].shape} ({train_rng}) | "
+           f"validation: {s['validation'].shape} ({rng(s['validation_time'])})")
+    if s.get('holdout_time') is not None and s['holdout_time'].size:
+        out += f" | held out: {s['holdout'].shape} ({rng(s['holdout_time'])})"
+    return out
 
 
 def fit_scaler(splits):
@@ -286,7 +357,8 @@ def fit_and_transform_splits(splits):
 
     train_scaled = scaler.transform(splits['train'])
     valid_scaled = scaler.transform(splits['validation'])
-    tests_scaled = scaler.transform(splits['test'])
+    # an empty test set (e.g. the 'balanced' start) stays empty: StandardScaler refuses 0-row input
+    tests_scaled = scaler.transform(splits['test']) if len(splits['test']) else splits['test'].copy()
     return scaler, train_scaled, valid_scaled, tests_scaled
 
 
@@ -302,7 +374,8 @@ def save_run(cfg, scaler, splits=None):
     out['scaler_scale'] = scaler.scale_.tolist()
     if splits is not None:
         out['split_ages'] = {k: [float(splits[k + '_time'].max()), float(splits[k + '_time'].min())]
-                             for k in ('test', 'train', 'validation')}
+                             for k in ('test', 'train', 'validation', 'holdout')
+                             if k + '_time' in splits and splits[k + '_time'].size}   # empty splits are left out
     with open(p['config'], 'w') as f:
         json.dump(out, f, indent=2)
     return p
