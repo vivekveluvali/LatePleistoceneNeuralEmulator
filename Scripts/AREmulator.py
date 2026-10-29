@@ -15,9 +15,9 @@ class RolloutEmulator(tf.keras.Model):
     new, shorter approximation plus a detail band; every level's detail band is
     kept, and only the final (coarsest) approximation is kept from the last level.
     """
-    def __init__(self,brain,rollout_length,vali_rollout_length,window_size,n_features,
+    def __init__(self,brain,rollout_length,vali_rollout_length,window_size,n_state=None, n_forcing=None,state_names=None,
                  L_2_weight=1.0,dwt_gamma=0.5,dwt_beta=0.3,dwt_eps=1e-6,dwt_levels=3,
-                 noise_level=1e-2,gp_noise_scale=1.0,vali_gp_noise=False):
+                 noise_level=1e-2,gp_noise_scale=1.0,vali_gp_noise=False,n_features=None,state_inputs=True):
         """
         initializer method for the rollout trainig class
         ------------------------------------------------
@@ -26,7 +26,15 @@ class RolloutEmulator(tf.keras.Model):
         rollout_length      - training rollout length
         vali_rollout_length - validation rollout length
         window_size         - input window length (used to build the brain)
-        n_features          - number of input columns (X, Y, Z, Insol -> 4)
+        n_state             - number of state variables (the first input columns; the brain predicts their increments).
+                              None -> 3 (X, Y, Z)
+        n_forcing           - number of forcing variables (the remaining input columns). None -> n_features - n_state
+                              if n_features is given, else 1 (insolation)
+        state_names         - names of the state variables, used for the per-variable loss logs (mse_<name>).
+                              None -> ['X', 'Y', 'Z'][:n_state] (s0, s1, ... beyond three)
+                              run_config.model_dims(cfg) gives all three for a config
+        n_features          - total number of input columns; only needed by the older call style
+                              (n_features=4 -> 3 states + 1 forcing), kept so older notebooks still run
         L_2_weight          - weight on the harmonized MSE loss (default 1.0)
         dwt_gamma           - Eq. 21 gamma: balances the flat vs. relative-error term (paper default 0.5)
         dwt_beta            - Eq. 23 beta: EMA smoothing factor for the historical-magnitude tracker (paper default 0.3)
@@ -40,6 +48,14 @@ class RolloutEmulator(tf.keras.Model):
                               as extra inputs. Baked in at tracing like noise_level.
         vali_gp_noise       - also perturb the validation data with GPR noise (default False: validation, and so the
                               val_C_2 / val_lag1_acf checkpoint gate, is scored against the GPR mean trajectory)
+        state_inputs        - True (default): autoregressive - the brain sees the whole window (states + forcings) and
+                              predicts the states' increments. False: regression on the forcing - the brain sees only
+                              the forcing columns of the window (so it must be built with n_features=n_forcing) and
+                              predicts the states themselves; the predicted states are never fed back. The random
+                              0.8-1.2 rescaling augmentation is skipped in this mode: with no state input it would only
+                              pair the same forcing with differently scaled targets. Windows passed to the model
+                              (training data, .call, standardplots.rollout) keep the full states + forcings layout
+                              either way. Baked in at tracing like noise_level.
         """
 
         super(RolloutEmulator, self).__init__()
@@ -50,8 +66,29 @@ class RolloutEmulator(tf.keras.Model):
         self.noise_level = noise_level
         self.gp_noise_scale = gp_noise_scale
         self.vali_gp_noise = vali_gp_noise
+        # defaults reproduce the original X, Y, Z + insolation setup (and the older n_features= call style)
+        if n_state is None:
+            n_state = 3
+        if n_forcing is None:
+            n_forcing = n_features - n_state if n_features is not None else 1
+        if n_features is not None and n_features != n_state + n_forcing:
+            raise ValueError(f"n_features={n_features} != n_state={n_state} + n_forcing={n_forcing}")
+        if n_state < 1:
+            raise ValueError("RolloutEmulator needs at least one state variable to roll out")
+        if state_names is None:
+            state_names = ['X', 'Y', 'Z'][:n_state] if n_state <= 3 else [f's{i}' for i in range(n_state)]
+        if len(state_names) != n_state:
+            raise ValueError(f"{len(state_names)} state_names for {n_state} state variables")
+        if not state_inputs and n_forcing < 1:
+            raise ValueError("state_inputs=False (regression on the forcing) needs at least one forcing variable")
+        self.n_state, self.n_forcing, n_features = n_state, n_forcing, n_state+n_forcing
+        self.n_features = n_features
+        self.state_inputs = state_inputs
 
-        self.brain.build((None, window_size, n_features))
+        # the brain only sees the forcing columns when the states aren't fed back
+        self.brain.build((None, window_size, n_features if state_inputs else n_forcing))
+
+        self.state_names = state_names
 
         # --- Harmonized MSE (hMSE) setup --------------------------------------
         # Haar wavelet: orthonormal 2-tap low-pass (approximation) / high-pass (detail)
@@ -81,9 +118,9 @@ class RolloutEmulator(tf.keras.Model):
         train_group_lengths = self._dwt_multilevel_lengths(self.rollout_length, self.dwt_levels)
         vali_group_lengths = self._dwt_multilevel_lengths(self.vali_rollout_length, self.dwt_levels)
 
-        self.fbar_train = [tf.Variable(tf.ones((L, 3)), trainable=False, name=f"fbar_train_{i}")
+        self.fbar_train = [tf.Variable(tf.ones((L, n_state)), trainable=False, name=f"fbar_train_{i}")
                             for i, L in enumerate(train_group_lengths)]
-        self.fbar_vali = [tf.Variable(tf.ones((L, 3)), trainable=False, name=f"fbar_vali_{i}")
+        self.fbar_vali = [tf.Variable(tf.ones((L, n_state)), trainable=False, name=f"fbar_vali_{i}")
                            for i, L in enumerate(vali_group_lengths)]
 
     # returns number of (trainable) variables/ size of the neural network
@@ -91,13 +128,22 @@ class RolloutEmulator(tf.keras.Model):
     def trainable_variables(self):
         return self.brain.trainable_variables
 
-    # call to model to predict dependent on the inputs (training set to None)
+    # call to model to predict dependent on the inputs (training set to None); inputs are full windows
+    # (states + forcings) in both modes: increments if state_inputs, else the states themselves
     def call(self, inputs, training=None):
-        return self.brain(inputs, training=training)
+        return self.brain(self._brain_input(inputs), training=training)
+
+    def _brain_input(self, window):
+        """the columns of a (batch, window, n_features) window the brain sees: all of them, or only the forcings"""
+        return window if self.state_inputs else window[:, :, self.n_state:]
+
+    def _next_state(self, x_now, brain_out):
+        """next states from the brain's output: last state + increment, or the output itself (regression)"""
+        return x_now + brain_out if self.state_inputs else brain_out
 
     def _dwt(self, x, length):
         """
-        Shallow (1-level) Haar DWT applied independently to each of the 3 state
+        Shallow (1-level) Haar DWT applied independently to each of the n_features state
         channels (X, Y, Z), via tf.nn.conv1d with the channel dimension folded
         into the batch dimension so channels aren't mixed together.
 
@@ -112,8 +158,8 @@ class RolloutEmulator(tf.keras.Model):
         cA = tf.nn.conv1d(x_ch, self.dwt_low,  stride=2, padding="VALID")  # (batch*3, coeff_len, 1)
         cD = tf.nn.conv1d(x_ch, self.dwt_high, stride=2, padding="VALID")
 
-        cA = tf.transpose(tf.reshape(cA, [batch, 3, coeff_len]), [0, 2, 1])  # (batch, coeff_len, 3)
-        cD = tf.transpose(tf.reshape(cD, [batch, 3, coeff_len]), [0, 2, 1])
+        cA = tf.transpose(tf.reshape(cA, [batch, self.n_state, coeff_len]), [0, 2, 1])  # (batch, coeff_len, 3)
+        cD = tf.transpose(tf.reshape(cD, [batch, self.n_state, coeff_len]), [0, 2, 1])
         return cA, cD
 
     def _dwt_multilevel(self, x, length, levels):
@@ -191,24 +237,29 @@ class RolloutEmulator(tf.keras.Model):
         std_init = tf.cast(features[2], X_init.dtype) * self.gp_noise_scale
         std_future = tf.cast(features[3], y.dtype) * self.gp_noise_scale
 
-        noisy_states = X_init[:, :, 0:3] + tf.random.normal(tf.shape(std_init), dtype=X_init.dtype) * std_init
-        X_init = tf.concat([noisy_states, X_init[:, :, 3:]], axis=-1)
+        noisy_states = X_init[:, :, 0:self.n_state] + tf.random.normal(tf.shape(std_init), dtype=X_init.dtype) * std_init
+        X_init = tf.concat([noisy_states, X_init[:, :, self.n_state:]], axis=-1)
         y = y + tf.random.normal(tf.shape(std_future), dtype=y.dtype) * std_future
         return X_init, y
 
     # heart of the actual training step
     @tf.function
     def train_step(self,data):
-
         # as you can see here, the training step will recieve data in a tuple of (features,data), which is equivalent to the data you pass to the
         # x= ... and y= .. argument in the keras.Model.fit(...) method
+        # features[0] should be ((X,Y,Z),(ecc,prec,obl)), and features[1] should be the future forcing
         (features,y) = data
+        S = self.n_state # number of state variables used (should be equal to the length of y)
+
 
         # features itself contains the X_init values being the values of the state space (X,Y,Z) and the insolation forcing in the input window w at index 0
         # at index 1 the "future" insolation forcing aka. the insolation during the rollout is passed with shape (rollout_length,1)
         # optional indices 2 and 3 are the GPR stds of the window and the target (see _gp_perturb)
-        X_init = features[0]
-        future_forcing = features[1]
+        X_init, future_forcing = features[0], features[1]
+        assert y.shape[-1] == self.n_state, f"targets have {y.shape[-1]} vars, model expects {self.n_state}"
+        assert future_forcing.shape[-1] == self.n_forcing
+        assert X_init.shape[-1] == self.n_state + self.n_forcing
+
 
         # swap the GPR mean for a noisy realization of it (no-op if the stds weren't passed)
         X_init, y = self._gp_perturb(features, X_init, y)
@@ -217,10 +268,11 @@ class RolloutEmulator(tf.keras.Model):
         n_features = tf.shape(X_init)[2]
 
         # scale augmentation to randomly rescale state space feature and target trajectories
-        scale = tf.random.uniform([batch_size,1,1], 0.8, 1.2)
+        # (skipped for the regression mode, state_inputs=False: see __init__)
+        scale = tf.random.uniform([batch_size,1,1], 0.8, 1.2) if self.state_inputs else tf.ones([batch_size,1,1])
 
         # apply scaling to (X,Y,Z) in the input window
-        X_init_scaled = tf.concat([X_init[:, :, 0:3] * scale, X_init[:, :, 3:]], axis=-1)
+        X_init_scaled = tf.concat([X_init[:, :, 0:S] * scale, X_init[:, :, S:]], axis=-1)
         y_scaled = y * scale
 
         # tell tensorflow to create the context manager of the variables created in the with statement and tracks them to calculate the gradients
@@ -230,7 +282,7 @@ class RolloutEmulator(tf.keras.Model):
             current_window = X_init_scaled
 
             # calculate ground truth trajectory
-            true_path = tf.concat([X_init_scaled[:, -1:, 0:3], y_scaled], axis=1)
+            true_path = tf.concat([X_init_scaled[:, -1:, 0:S], y_scaled], axis=1)
 
             all_paths = []
 
@@ -241,11 +293,11 @@ class RolloutEmulator(tf.keras.Model):
                 noisy_window = current_window + tf.random.normal(tf.shape(current_window), stddev=self.noise_level)
 
                 # generating increment predictions (forward-pass)
-                d_prediction = self.brain(noisy_window, training=True)
+                d_prediction = self.brain(self._brain_input(noisy_window), training=True)
 
                 # adding predicted increment to last entry in the crurrent windoe
-                x_now = current_window[:, -1, 0:3]
-                prediction_abs = x_now + d_prediction
+                x_now = current_window[:, -1, 0:S]
+                prediction_abs = self._next_state(x_now, d_prediction)
 
                 all_paths.append(prediction_abs)
 
@@ -256,12 +308,12 @@ class RolloutEmulator(tf.keras.Model):
 
                 pred = tf.expand_dims(prediction_abs, axis=1)
 
-                forc_true = future_forcing[:, i]
+                forc_true = future_forcing[:, i, :]
 
                 # noise injection usedto prevent NN from remembering just the values, resulting in insolation just being used as a clock (safety measure)
                 forc_noisy = forc_true + tf.random.normal(tf.shape(forc_true), stddev=self.noise_level)
 
-                forc = tf.reshape(forc_noisy, (batch_size, 1, 1))
+                forc = tf.expand_dims(forc_noisy, axis=1)     # (batch, 1, n_forcing); was reshape to (b,1,1)
                 next_step = tf.concat([pred,forc],axis=-1)
 
                 # appending next predicted state and insolation forcig to the current window and moving window one time step forward
@@ -277,7 +329,7 @@ class RolloutEmulator(tf.keras.Model):
 
             # plain point-to-point MSE, logged for comparison only - not part of total_loss,
             # so it has no effect on the gradients computed below. Also kept per state variable (X, Y, Z)
-            mse_per_var = tf.reduce_mean(tf.square(true_path[:,1:,:] - p_stack), axis=[0, 1])  # (3,)
+            mse_per_var = tf.reduce_mean(tf.square(true_path[:,1:,:] - p_stack), axis=[0, 1])  # (S,)
             pointwise_mse = tf.reduce_mean(mse_per_var)
 
         # Backporpagation through the forward pass operations tracked by GradientTape()
@@ -285,13 +337,10 @@ class RolloutEmulator(tf.keras.Model):
         # weight update
         self.optimizer.apply_gradients(zip(grads,self.trainable_variables))
 
-        return {
-            "loss": total_loss,
-            "abs": abs_loss,
-            "mse": pointwise_mse,
-            "mse_X": mse_per_var[0],
-            "mse_Y": mse_per_var[1],
-            "mse_Z": mse_per_var[2]}
+        logs = {"loss": total_loss, "abs": abs_loss, "mse": pointwise_mse}
+        for k, name in enumerate(self.state_names):
+            logs[f"mse_{name}"] = mse_per_var[k]
+        return logs
 
     # test_step used in the validation process
     # essentially the same as the training step, only with training disabled and no backpropagation/ weights update
@@ -316,10 +365,14 @@ class RolloutEmulator(tf.keras.Model):
 
             return tf.reduce_mean(acf_per_sample)
 
+        S = self.n_state
 
         (features,y) = data
-        X_init = features[0]
-        future_forcing = features[1]
+        X_init, future_forcing = features[0], features[1]
+
+        assert y.shape[-1] == self.n_state, f"targets have {y.shape[-1]} vars, model expects {self.n_state}"
+        assert future_forcing.shape[-1] == self.n_forcing
+        assert X_init.shape[-1] == self.n_state + self.n_forcing
 
         # validation is scored against the GPR mean unless vali_gp_noise is set
         if self.vali_gp_noise:
@@ -332,20 +385,20 @@ class RolloutEmulator(tf.keras.Model):
 
         all_paths = []
 
-        true_path = tf.concat([X_init[:, -1:, 0:3], y], axis=1) # [Batch, Rollout+1, 3]
+        true_path = tf.concat([X_init[:, -1:, 0:S], y], axis=1) # [Batch, Rollout+1, 3]
 
         for i in range(self.vali_rollout_length):
-            d_prediction = self.brain(current_window, training=False)
+            d_prediction = self.brain(self._brain_input(current_window), training=False)
 
-            x_now = current_window[:, -1, 0:3]
-            prediction_abs = x_now + d_prediction
+            x_now = current_window[:, -1, 0:S]
+            prediction_abs = self._next_state(x_now, d_prediction)
 
             all_paths.append(prediction_abs)
 
             next_step = tf.zeros((batch_size, 1, n_features))
 
             pred = tf.expand_dims(prediction_abs, axis=1)
-            forc = tf.reshape(future_forcing[:, i], (batch_size, 1, 1))
+            forc = tf.expand_dims(future_forcing[:, i, :], axis = 1)
             next_step = tf.concat([pred,forc],axis=-1)
 
             current_window = tf.concat([current_window[:,1:,:],next_step],axis=1)
@@ -376,14 +429,10 @@ class RolloutEmulator(tf.keras.Model):
 
         total_loss = self.L_2_weight * abs_loss
 
-        return {
-            "loss": total_loss,
-            "abs": abs_loss,
-            "mse": pointwise_mse,
-            "mse_X": mse_per_var[0],
-            "mse_Y": mse_per_var[1],
-            "mse_Z": mse_per_var[2],
-            "lag1_acf": lag1_acf,
-            "C_2": C_2}
+        logs = {"loss": total_loss, "abs": abs_loss, "mse": pointwise_mse, 
+                "lag1_acf": lag1_acf, "C_2": C_2}
+        for k, name in enumerate(self.state_names):
+            logs[f"mse_{name}"] = mse_per_var[k]
+        return logs
     
     

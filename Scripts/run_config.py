@@ -63,6 +63,25 @@ INSOL_COLS = {'insol_huy06': 'ISI_thresh0Wm2', 'insol_ber90': 'Q65N_solstice_raw
 # which also covers the future (to +21 Ma), so it can force rollouts past the present
 COMPUTED_INSOL = {'insol_la04'}
 
+# ---- model inputs: which state variables and forcings a run uses (make_config(state=..., forcing=...)) ----
+# short name of each state variable; also accepted in place of the record name in make_config(state=...)
+STATE_NAMES = {'dO18_LR04': 'X', 'co2_Yam': 'Y', 'MgCa_Eld': 'Z'}
+# forcing options -> column of the load_data frame. 'insol' is the run's insolation record (cfg['insol'], the
+# default single forcing); the rest are orbital elements, computed on the fly (nothing is stored on disk):
+#   ecc  - eccentricity
+#   prec - climatic precession index e*sin(varpi) (varpi: longitude of perihelion from the moving equinox)
+#   obl  - obliquity [rad]
+# from Berger 1990 (palinsol, 0-1500 ka: the decomposition behind insol_ber90) or Laskar 2004 (any age, incl.
+# the future: the decomposition behind insol_la04). The two agree closely (r = 0.98-0.996 over 0-1500 ka).
+# The bare names 'ecc', 'prec', 'obl' resolve to the source matching cfg['insol'] (Laskar for insol_la04,
+# Berger otherwise); add the suffix ('ecc_la04', ...) to choose explicitly. New forcings go here + in
+# _forcing_values below
+ORBITAL_SOURCES = ('ber90', 'la04')
+FORCING_COLS = {'insol': None,   # -> INSOL_COLS[cfg['insol']]
+                **{f'{el}_{src}': f'{el}_{src}' for el in ('ecc', 'prec', 'obl') for src in ORBITAL_SOURCES}}
+DEFAULT_FORCING = ('insol',)
+BER90_CSV = PROJECT / 'Data' / 'Observations' / 'palinsol_ber90_raw.csv'
+
 # runs trained before GPR_CSV existed stored a 'csv' path in their config.json; load_data reads those
 # files with these column names, mapped onto the GPR_CSV names (stds are squared into variances)
 _LEGACY_COLS = {'dO18_LR04[pm]': 'dO18_LR04', 'CO2_Yamamoto[pm]': 'co2_Yam', 'MgCa_Eld[mmol/mol]': 'MgCa_Eld',
@@ -87,7 +106,7 @@ COLORS = {
 ##########################
 #### Important Numbers ###
 ##########################
-NFEATURES = 4
+NFEATURES = 4   # columns of a standard X, Y, Z + insolation input row; ablation runs: n_features(cfg)
 
 # default parameter set
 DEFAULT_PARAMS = {
@@ -125,7 +144,8 @@ VALID_CENTERS = {
 def make_config(dataset = DATASET, seed=42, params=DEFAULT_PARAMS, insol='insol_ber90', max_age=None,
                 train_start='default', train_frac=0.8, valid_frac=0.2,
                 timestep=1, window_kyr=50, rollout_kyr=32, vali_rollout_kyr=128,
-                noise_level=1e-2, acf_threshold=0.97, epochs=100, batch_size=64):
+                noise_level=1e-2, acf_threshold=0.97, epochs=100, batch_size=64, state=None, forcing=None,
+                state_feedback=True):
     """
     Build the config dict for one run.
 
@@ -144,6 +164,17 @@ def make_config(dataset = DATASET, seed=42, params=DEFAULT_PARAMS, insol='insol_
                  train_start='default'; the oldest remainder is the test set.
     valid_frac  - fraction of training+validation held out (youngest end) as validation set; raised
                  if needed so the validation set holds at least one validation window.
+    state       - state variables the model evolves, in this order: record names (STATE_RECORDS) or their short
+                 names ('X', 'Y', 'Z'). None -> all three. An empty list is allowed by the config but the
+                 RolloutEmulator needs at least one state variable to roll out.
+    forcing     - forcings the model is driven by, keys of FORCING_COLS: 'insol' (cfg['insol']) and/or the
+                 orbital elements 'ecc', 'prec', 'obl' (optionally with a source suffix, e.g. 'ecc_la04').
+                 None -> ('insol',). Use () for no forcing.
+    state_feedback - True (default): autoregressive - the model sees its own states. False: regression on the
+                 forcing - the model sees only the forcing window and predicts the states directly, never seeing
+                 its own predictions (AREmulator.RolloutEmulator(state_inputs=False); see model_dims, brain_inputs)
+    state/forcing/state_feedback are only stored in the config (and named in the run tag) when they differ from the
+    default, so the configs and run tags of the standard X, Y, Z + insolation runs are unchanged.
 
     cfg['test_size'] (rows older than training+validation) is what split_data uses; it comes from train_start if
     one is named, otherwise from train_frac. cfg['train_size'] is the span of training+validation [kyr] and
@@ -152,6 +183,8 @@ def make_config(dataset = DATASET, seed=42, params=DEFAULT_PARAMS, insol='insol_
     """
     if train_start not in STARTS:
         raise KeyError(f"unknown training start {train_start!r}; choose from {list(STARTS)}")
+    state = _resolve_state(state)
+    forcing = _resolve_forcing(forcing, insol)
     if insol not in INSOL_COLS:
         raise KeyError(f"unknown insolation record {insol!r}; choose from {list(INSOL_COLS)}")
     max_age = float(dataset.removesuffix('ka')) if max_age is None else float(max_age)
@@ -194,13 +227,118 @@ def make_config(dataset = DATASET, seed=42, params=DEFAULT_PARAMS, insol='insol_
         cfg['training_end'] = end_age
     if train_start in VALID_CENTERS:
         cfg['validation_center'] = VALID_CENTERS[train_start]
+    ablation = ''
+    if not state_feedback:
+        if not forcing:
+            raise ValueError("state_feedback=False (regression on the forcing) needs at least one forcing")
+        cfg['state_feedback'] = False
+    if state != STATE_RECORDS or forcing != list(DEFAULT_FORCING) or not state_feedback:
+        cfg['state'], cfg['forcing'] = state, forcing
+        ablation = f"_{inputs_label(cfg)}"
     digest = hashlib.sha1(json.dumps(cfg, sort_keys=True).encode()).hexdigest()[:8]
-    cfg['run_tag'] = f"{train_start}_seed{seed}_{insol}_{digest}"
+    cfg['run_tag'] = f"{train_start}_seed{seed}_{insol}{ablation}_{digest}"
     return cfg
 
 
-def run_paths(run_tag):
-    d = RUNS_DIR / run_tag
+def _resolve_state(state):
+    """state as passed to make_config -> list of record names (STATE_RECORDS order is NOT imposed)"""
+    if state is None:
+        return list(STATE_RECORDS)
+    short = {v: k for k, v in STATE_NAMES.items()}
+    out = [short.get(v, v) for v in state]
+    bad = [v for v in out if v not in STATE_RECORDS]
+    if bad:
+        raise KeyError(f"unknown state variable(s) {bad}; choose from {STATE_RECORDS} or {list(short)}")
+    if len(set(out)) != len(out):
+        raise ValueError(f"state variables repeated: {list(state)}")
+    return out
+
+
+def _resolve_forcing(forcing, insol):
+    """forcing as passed to make_config -> list of FORCING_COLS keys, bare orbital names given their source"""
+    if forcing is None:
+        return list(DEFAULT_FORCING)
+    src = 'la04' if insol == 'insol_la04' else 'ber90'
+    out = [f if f in FORCING_COLS else f'{f}_{src}' for f in forcing]
+    bad = [f for f in out if f not in FORCING_COLS]
+    if bad:
+        raise KeyError(f"unknown forcing(s) {bad}; choose from 'insol', 'ecc', 'prec', 'obl' (or {list(FORCING_COLS)})")
+    if len(set(out)) != len(out):
+        raise ValueError(f"forcings repeated: {list(forcing)}")
+    return out
+
+
+# ---- what a config feeds the model (defaults reproduce the standard X, Y, Z + insolation runs) ----
+def state_records(cfg):
+    """state variables of the run (record names), in model order"""
+    return list(cfg.get('state', STATE_RECORDS))
+
+
+def state_names(cfg):
+    """short names ('X', 'Y', 'Z') of the run's state variables, in model order (RolloutEmulator state_names)"""
+    return [STATE_NAMES[r] for r in state_records(cfg)]
+
+
+def forcing_names(cfg):
+    """the run's forcings (FORCING_COLS keys), in model order"""
+    return list(cfg.get('forcing', DEFAULT_FORCING))
+
+
+def forcing_cols(cfg):
+    """load_data columns of the run's forcings"""
+    return [INSOL_COLS[cfg.get('insol', 'insol_huy06')] if f == 'insol' else FORCING_COLS[f]
+            for f in forcing_names(cfg)]
+
+
+def var_cols(cfg):
+    """GPR variance columns of the run's state variables"""
+    return [f'Variance_{r}' for r in state_records(cfg)]
+
+
+def n_state(cfg):
+    return len(state_records(cfg))
+
+
+def n_forcing(cfg):
+    return len(forcing_names(cfg))
+
+
+def n_features(cfg):
+    """columns of a model input window: states, then forcings (LPNE.CNN_model n_features)"""
+    return n_state(cfg) + n_forcing(cfg)
+
+
+def state_feedback(cfg):
+    """True if the model sees its own states (autoregressive), False for a regression on the forcing"""
+    return cfg.get('state_feedback', True)
+
+
+def brain_inputs(cfg):
+    """columns the network itself sees (LPNE.CNN_model n_features=): all of them, or only the forcings when the
+    states aren't fed back. The data windows always hold all n_features(cfg) columns"""
+    return n_features(cfg) if state_feedback(cfg) else n_forcing(cfg)
+
+
+def model_dims(cfg):
+    """
+    keyword arguments describing the run's inputs, for AREmulator.RolloutEmulator(..., **rc.model_dims(cfg));
+    use brain_inputs(cfg) / n_state(cfg) for LPNE.CNN_model(n_features=, n_out=)
+    """
+    return {'n_state': n_state(cfg), 'n_forcing': n_forcing(cfg), 'state_names': state_names(cfg),
+            'state_inputs': state_feedback(cfg)}
+
+
+def inputs_label(cfg):
+    """short label of the run's inputs, e.g. 'XYZ_insol', 'XZ_ecc-prec-obl', 'XYZ_ecc-prec-obl_regression'"""
+    st = ''.join(state_names(cfg)) or 'nostate'
+    fo = '-'.join(f.split('_')[0] if f != 'insol' else f for f in forcing_names(cfg)) or 'noforcing'
+    return f"{st}_{fo}" + ('' if state_feedback(cfg) else '_regression')
+
+
+def run_paths(run_tag, runs_dir=None):
+    """file paths of one run, in <runs_dir>/<run_tag>/; runs_dir None -> RUNS_DIR (e.g. RUNS_DIR / '_Ablations'
+    keeps a study's runs in their own folder)"""
+    d = Path(runs_dir if runs_dir is not None else RUNS_DIR) / run_tag
     return {
         'dir': d,
         'weights': d / 'model.weights.h5',        # keras 3 requires the .weights.h5 suffix
@@ -214,10 +352,60 @@ def run_paths(run_tag):
 # ----------------------------------------------------------------------------
 def state_cols(cfg):
     """
-    Columns of the load_data frame that make up the model state: X, Y, Z, then the insolation forcing chosen
-    by cfg['insol'] (set in make_config, so it's part of the run tag; old configs without it used Huybers).
+    Columns of the load_data frame that make up a model input row: the run's state variables (default X, Y, Z),
+    then its forcings (default the insolation record chosen by cfg['insol'], which is set in make_config so it's
+    part of the run tag; old configs without it used Huybers).
     """
-    return STATE_RECORDS + [INSOL_COLS[cfg.get('insol', 'insol_huy06')]]
+    return state_records(cfg) + forcing_cols(cfg)
+
+
+def _forcing_values(name, ages):
+    """values of the computed forcing `name` (a FORCING_COLS key other than 'insol') at ages [ka BP]"""
+    element, src = name.split('_')
+    if src == 'ber90':
+        b = pd.read_csv(BER90_CSV)
+        b = b[np.isclose(b['age_kyr'] % 1, 0)].set_index('age_kyr')   # file is every 0.1 ka; keep the 1 ka ages
+        b = b.reindex(np.round(ages))                                    # NaN beyond 1500 ka -> load_data reports it
+        return {'ecc': np.hypot(b['Pi_P_raw'], b['Pi_C_raw']),          # Pi_P = e sin(varpi), Pi_C = e cos(varpi)
+                'prec': b['Pi_P_raw'], 'obl': b['E_raw']}[element].to_numpy(dtype=float)
+    import longterm_insolation as li   # imported here: it needs climlab, which the stored records don't
+    la = li.load_la2004()
+    t = -np.asarray(ages, dtype=float)   # age [ka BP] -> kyr from J2000
+    ecc = np.interp(t, la['t'], la['ecc'])
+    return {'ecc': ecc, 'prec': ecc * np.sin(np.interp(t, la['t'], la['varpi'])),
+            'obl': np.interp(t, la['t'], la['obliq'])}[element]
+
+
+def add_computed_forcing(df, cfg):
+    """Copy of df with every computed forcing of the run (orbital elements) added as a column. Nothing is written."""
+    names = [f for f in forcing_names(cfg) if f != 'insol']
+    if not names:
+        return df
+    df = df.copy()
+    ages = df[AGE_COL].to_numpy(dtype=float)
+    for f in names:
+        df[FORCING_COLS[f]] = _forcing_values(f, ages)
+    return df
+
+
+def forcing_record(cfg, ages):
+    """
+    (len(ages), n_forcing) array of the run's forcings at arbitrary ages [ka BP] (negative = future), e.g. to
+    force a rollout past the observations. 'insol' is only available here for insol_la04 (the stored records
+    end at the oldest observation and the present); the Laskar orbital elements cover -21 Ma to +51 Ma
+    """
+    ages = np.asarray(ages, dtype=float)
+    cols = []
+    for f in forcing_names(cfg):
+        if f != 'insol':
+            cols.append(_forcing_values(f, ages))
+        elif cfg.get('insol') == 'insol_la04':
+            import longterm_insolation as li
+            cols.append(li.solstice_insolation(-ages))
+        else:
+            raise ValueError(f"insolation {cfg.get('insol')!r} is only stored for observed ages; use insol_la04 "
+                             f"for arbitrary ages")
+    return np.column_stack(cols) if cols else np.empty((ages.size, 0))
 
 
 def add_computed_insolation(df, insol):
@@ -252,8 +440,9 @@ def load_data(cfg):
         max_age = cfg['max_age']
         if cfg.get('insol') in COMPUTED_INSOL:
             df = add_computed_insolation(df, cfg['insol'])
+    df = add_computed_forcing(df, cfg)
 
-    cols = [AGE_COL] + state_cols(cfg) + VAR_COLS
+    cols = [AGE_COL] + state_cols(cfg) + var_cols(cfg)
     df = df.loc[df[AGE_COL] <= max_age, cols]
     if df.isna().any().any():
         short = [c for c in cols if df[c].isna().any()]
@@ -276,11 +465,11 @@ def split_data(df, cfg):
     'train_segments' lists the (start, stop) rows of 'train' that are contiguous in time; pass it to
     LPNE.create_windows(..., segments=) so no training window spans the validation block.
     Returns a dict of numpy arrays (state columns incl. insolation as last column). The GPR standard
-    deviations of the three state variables (sqrt of VAR_COLS, unscaled) are split the same way under
+    deviations of the run's state variables (sqrt of var_cols(cfg), unscaled) are split the same way under
     '<split>_std'.
     """
     A = df[state_cols(cfg)].to_numpy(dtype=float)
-    S = np.sqrt(df[VAR_COLS].to_numpy(dtype=float))
+    S = np.sqrt(df[var_cols(cfg)].to_numpy(dtype=float))
     t = df[AGE_COL].to_numpy(dtype=float)
 
     test_size = cfg['test_size']
@@ -326,10 +515,11 @@ def split_data(df, cfg):
 
 def scale_std(std, scaler):
     """
-    GPR standard deviations (n, 3; columns in STATE_RECORDS order) -> the scaler's units. A spread is only divided
-    by the scale; the mean shift applies to values, not spreads.
+    GPR standard deviations (n, n_state; the run's state variables, in model order - split_data's '<split>_std')
+    -> the scaler's units. A spread is only divided by the scale; the mean shift applies to values, not spreads.
+    The states are the scaler's first columns, so their scales are its first n_state ones.
     """
-    return std / scaler.scale_[:3]
+    return std / scaler.scale_[:std.shape[1]]
 
 
 def describe_split(s):
@@ -365,9 +555,9 @@ def fit_and_transform_splits(splits):
 # ----------------------------------------------------------------------------
 # saving / loading runs
 # ----------------------------------------------------------------------------
-def save_run(cfg, scaler, splits=None):
-    """Write config.json (settings + scaler parameters) into the run folder."""
-    p = run_paths(cfg['run_tag'])
+def save_run(cfg, scaler, splits=None, runs_dir=None):
+    """Write config.json (settings + scaler parameters) into the run folder (in runs_dir, default RUNS_DIR)."""
+    p = run_paths(cfg['run_tag'], runs_dir)
     p['dir'].mkdir(parents=True, exist_ok=True)
     out = dict(cfg)
     out['scaler_mean'] = scaler.mean_.tolist()
@@ -390,27 +580,30 @@ def scaler_from_config(cfg):
     return scaler
 
 
-def load_run(run_tag):
-    """Return (cfg, scaler, paths) for a previously trained run."""
-    p = run_paths(run_tag)
+def load_run(run_tag, runs_dir=None):
+    """Return (cfg, scaler, paths) for a previously trained run (in runs_dir, default RUNS_DIR)."""
+    p = run_paths(run_tag, runs_dir)
     with open(p['config']) as f:
         cfg = json.load(f)
     return cfg, scaler_from_config(cfg), p
 
 
-def list_runs(train_start=None):
-    """Run tags that have trained weights, newest first; train_start (a key of STARTS) keeps only runs with that start."""
-    if not RUNS_DIR.exists():
+def list_runs(train_start=None, runs_dir=None):
+    """Run tags that have trained weights, newest first; train_start (a key of STARTS) keeps only runs with that start.
+    Looks in runs_dir (default RUNS_DIR); subfolders such as _Ablations are not searched."""
+    runs_dir = Path(runs_dir if runs_dir is not None else RUNS_DIR)
+    if not runs_dir.exists():
         return []
-    runs = [d for d in RUNS_DIR.iterdir()
+    runs = [d for d in runs_dir.iterdir()
             if (d / 'config.json').exists() and (d / 'model.weights.h5').exists()
             and (train_start is None or d.name.startswith(train_start + '_'))]
     return [d.name for d in sorted(runs, key=lambda d: (d / 'model.weights.h5').stat().st_mtime, reverse=True)]
 
 
-def latest_run(train_start=None):
-    runs = list_runs(train_start)
+def latest_run(train_start=None, runs_dir=None):
+    runs = list_runs(train_start, runs_dir)
     if not runs:
-        raise FileNotFoundError(f"no trained runs for training start {train_start!r} in {RUNS_DIR} - "
+        raise FileNotFoundError(f"no trained runs for training start {train_start!r} in "
+                                f"{runs_dir if runs_dir is not None else RUNS_DIR} - "
                                 f"train one with TestRollouts first")
     return runs[0]
