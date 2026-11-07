@@ -194,6 +194,23 @@ def gp_reg(source):
 
     return gpr
 
+def gp_table():
+    """
+    Fitted GP hyperparameters of every record gp_reg is applied to, one row per record.
+    length scale [ka] - of the Matern kernel
+    noise level       - of the WhiteKernel, a variance in units of the record's own variance (normalize_y=True);
+                        NaN if the record has given variances, which are used instead of fitting a noise level
+    """
+    rows = {}
+    for name in NAMES:
+        if name in INSOL_KEYS:
+            continue
+        kernel = gp_reg(name).kernel_
+        has_noise = hasattr(kernel, 'k2')   # Matern + WhiteKernel, or Matern alone when variances are given
+        rows[name] = {'length scale [ka]': kernel.k1.length_scale if has_noise else kernel.length_scale,
+                      'noise level': kernel.k2.noise_level if has_noise else np.nan}
+    return pd.DataFrame.from_dict(rows, orient='index')
+
 print('functions defined')
 
 if __name__ == "__main__":
