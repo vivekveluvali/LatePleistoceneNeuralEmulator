@@ -1,0 +1,39 @@
+/* DATA DESCRIPTION:
+Citation:	Elderfield, Henry; Ferretti, Patrizia; Greaves, Mervyn; Crowhurst, Simon J; McCave, I Nicholas; Hodell, David A; Piotrowski, Alexander M (2012): (Table S3) Mg/Ca, Fe/Ca and Mn/Ca ratios, and stable isotope ratios of Cibicidoides wuellerstorfi of ODP Site 181-1123 "cold samples" [dataset]. PANGAEA, https://doi.org/10.1594/PANGAEA.786181, 
+	In supplement to: Elderfield, H et al. (2012): Evolution of ocean temperature and ice volume through the Mid-Pleistocene Climate Transition. Science, 337(6095), 704-709, https://doi.org/10.1126/science.1221294
+Project(s):	Ocean Drilling Program (ODP) (URI: https://www-odp.tamu.edu:443/)
+Coverage:	LATITUDE: -41.786000 * LONGITUDE: -171.499000
+	DATE/TIME START: 1998-09-12T00:00:00 * DATE/TIME END: 1998-09-24T00:00:00
+	MINIMUM DEPTH, sediment/rock: 6.74 m * MAXIMUM DEPTH, sediment/rock: 63.14 m
+Event(s):	181-1123 * LATITUDE: -41.786000 * LONGITUDE: -171.499000 * DATE/TIME START: 1998-09-12T00:00:00 * DATE/TIME END: 1998-09-24T00:00:00 * ELEVATION: -3290.0 m * PENETRATION: 1279.9 m * RECOVERY: 899.5 m * LOCATION: South Pacific Ocean * CAMPAIGN: Leg181 * BASIS: Joides Resolution (URI: https://www-odp.tamu.edu:443/resolutn.html) * METHOD/DEVICE: Composite Core (COMPCORE) * COMMENT: 102 cores; 957 m cored; 322.9 m drilled; 94% recovery
+Comment:	DEPTH, sediment [m] is given in rmcd. AGE [ka BP] follows the LR04 timescale (Lisiecki and Raymo, 2005, doi:10.1029/2004PA001071). 18 samples have Mg/Ca <0.8 mmol/mol of which 6 have Mg/Ca < 0.75 mmol/mol. The samples are within a block of heavier individuals ~ 38 µg compared with ~26µg for typical samples.
+Parameter(s):	Sample code/label (Sample label) * PI: Elderfield, Henry (he101@esc.cam.ac.uk, http://www.esc.cam.ac.uk/people/academic-staff/harry-elderfield) * METHOD/DEVICE: DSDP/ODP/IODP sample designation (URI: hdl:10013/epic.27914.d001)
+	DEPTH, sediment/rock [m] (Depth sed) * GEOCODE
+	AGE [ka BP] (Age) * GEOCODE
+	Magnesium/Calcium ratio [mmol/mol] (Mg/Ca) * PI: Elderfield, Henry (he101@esc.cam.ac.uk, http://www.esc.cam.ac.uk/people/academic-staff/harry-elderfield)
+	Iron/Calcium ratio [mmol/mol] (Fe/Ca) * PI: Elderfield, Henry (he101@esc.cam.ac.uk, http://www.esc.cam.ac.uk/people/academic-staff/harry-elderfield)
+	Manganese/Calcium ratio [mmol/mol] (Mn/Ca) * PI: Elderfield, Henry (he101@esc.cam.ac.uk, http://www.esc.cam.ac.uk/people/academic-staff/harry-elderfield)
+	Cibicidoides wuellerstorfi, δ18O [‰ PDB] (C. wuellerstorfi δ18O) * PI: Elderfield, Henry (he101@esc.cam.ac.uk, http://www.esc.cam.ac.uk/people/academic-staff/harry-elderfield)
+	Cibicidoides wuellerstorfi, δ13C [‰ PDB] (C. wuellerstorfi δ13C) * PI: Elderfield, Henry (he101@esc.cam.ac.uk, http://www.esc.cam.ac.uk/people/academic-staff/harry-elderfield)
+License:	Creative Commons Attribution 3.0 Unported (CC-BY-3.0) (URI: https://creativecommons.org/licenses/by/3.0/)
+Size:	96 data points
+*/
+Sample label	Depth sed [m]	Age [ka BP]	Mg/Ca [mmol/mol]	Fe/Ca [mmol/mol]	Mn/Ca [mmol/mol]	C. wuellerstorfi δ18O [‰ PDB]	C. wuellerstorfi δ13C [‰ PDB]
+181-1123C-1H-5,74-76	6.74	162.5	0.758	0.019	0.071		
+181-1123B-2H-4,82-84	7.98	189.6	0.787	0.025	0.034		
+181-1123B-2H-6,12-14	10.28	248.8	0.784	0.016	0.039		
+181-1123B-3H-2,84-86	16.96	378.4	0.767	0.051	0.066		
+181-1123C-4H-2,117-119	31.39	748.5	0.775	0.015	0.042		
+181-1123C-4H-2,127-129	31.49	751.0	0.782	0.031	0.050		
+181-1123B-7H-2W,35-39	58.79	1263.6	0.778	0.016	0.072	3.55	-0.11
+181-1123B-7H-3W,0-4	59.94	1298.8	0.797	0.009	0.075	3.76	-0.30
+181-1123B-7H-3W,70-74	60.64	1328.8	0.769	0.010	0.059	3.75	-0.72
+181-1123B-7H-3W,75-79	60.69	1330.7	0.743	0.013	0.063	3.69	-0.39
+181-1123B-7H-3W,95-99	60.89	1338.3	0.733	0.012	0.073	3.65	-0.42
+181-1123B-7H-4W,100-104	62.44	1406.7	0.769	0.009	0.078	3.53	0.26
+181-1123B-7H-4W,110-114	62.54	1409.6	0.714	0.014	0.067	3.43	0.36
+181-1123B-7H-4W,115-119	62.59	1411.1	0.695	0.013	0.048	3.69	0.09
+181-1123B-7H-4W,120-124	62.64	1412.6	0.746	0.011	0.052	3.86	-0.37
+181-1123B-7H-4W,125-129	62.69	1414.1	0.742	0.011	0.046	3.76	-0.41
+181-1123B-7H-4W,130-134	62.74	1415.6	0.772	0.014	0.040	3.52	0.16
+181-1123B-7H-5W,20-24	63.14	1428.1	0.768	0.020	0.114	3.11	0.21

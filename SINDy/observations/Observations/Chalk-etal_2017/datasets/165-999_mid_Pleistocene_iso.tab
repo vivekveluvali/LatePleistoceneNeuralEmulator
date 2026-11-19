@@ -1,0 +1,71 @@
+/* DATA DESCRIPTION:
+Citation:	Chalk, Thomas B; Hain, Mathis P; Foster, Gavin L; Rohling, Eelco J; Sexton, Philip F; Badger, Marcus P S; Cherry, Soraya G; Hasenfratz, Adam P; Haug, Gerald H; Jaccard, Samuel H; Martínez-García, Alfredo; Crespin, Julien; Pancost, Richard D; Wilson, Paul A (2017): Mid Pleistocene isotopes analysis from ODP Site 165-999 [dataset]. PANGAEA, https://doi.org/10.1594/PANGAEA.882548, 
+	In supplement to: Chalk, Thomas B; Hain, Mathis P; Foster, Gavin L; Rohling, Eelco J; Sexton, Philip F; Badger, Marcus P S; Cherry, Soraya G; Hasenfratz, Adam P; Haug, Gerald H; Jaccard, Samuel L; Martínez-García, Alfredo; Pälike, Heiko; Pancost, Richard D; Wilson, Paul A (2017): Causes of ice age intensification across the Mid-Pleistocene Transition. Proceedings of the National Academy of Sciences, 114(50), 13114-13119, https://doi.org/10.1073/pnas.1702143114
+Coverage:	LATITUDE: 12.743650 * LONGITUDE: -78.739800
+	DATE/TIME START: 1995-01-10T00:00:00 * DATE/TIME END: 1996-01-29T00:00:00
+	MINIMUM ELEVATION: -2828.0 m * MAXIMUM ELEVATION: -2828.0 m
+Event(s):	165-999 * LATITUDE: 12.743650 * LONGITUDE: -78.739800 * DATE/TIME START: 1995-01-10T00:00:00 * DATE/TIME END: 1996-01-29T00:00:00 * ELEVATION: -2828.0 m * PENETRATION: 1632.5 m * RECOVERY: 932.8 m * LOCATION: Caribbean Sea * CAMPAIGN: Leg165 * BASIS: Joides Resolution (URI: https://www-odp.tamu.edu:443/resolutn.html) * METHOD/DEVICE: Composite Core (COMPCORE) * COMMENT: 124 cores; 1089.1 m cored; 0 m drilled; 85.7% recovery
+Parameter(s):	AGE [ka BP] (Age) * GEOCODE * PI: Chalk, Thomas B (https://orcid.org/0000-0002-2880-3847)
+	Sea surface temperature [°C] (SST) * PI: Chalk, Thomas B (https://orcid.org/0000-0002-2880-3847) * COMMENT: Sea Surface Temperature (SST) derived from Mg/Ca ruber (column E)
+	Globigerinoides ruber, δ11B [‰ SRM] (G. ruber δ11B) * PI: Chalk, Thomas B (https://orcid.org/0000-0002-2880-3847) * COMMENT: d11B per mil deviation from SRM-951 - averaged from two replicates
+	Globigerinoides ruber, δ11B [‰ SRM] (G. ruber δ11B) * PI: Chalk, Thomas B (https://orcid.org/0000-0002-2880-3847) * COMMENT: d11B.er 1 sd from long term boron isotope reproducibility at the University of Southampton
+	Globigerinoides ruber, Magnesium/Calcium ratio [mmol/mol] (G. ruber Mg/Ca) * PI: Chalk, Thomas B (https://orcid.org/0000-0002-2880-3847) * COMMENT: Mg/Ca ratio of ruber, measured at University of Southampton, typical reproducibility <3% (NB, only for new data)
+	pH (pH) * PI: Chalk, Thomas B (https://orcid.org/0000-0002-2880-3847) * COMMENT: pH or surface water calculated from d11B using equations listed in Zeebe and Wolf-Gladrow (2005) and the G. ruber calibration from Henehan et al. (2013)
+	Carbon dioxide [ppmv] (CO2) * PI: Chalk, Thomas B (https://orcid.org/0000-0002-2880-3847) * COMMENT: CO2 calculated from seacarb package in R
+	Carbon dioxide [ppmv] (CO2) * PI: Chalk, Thomas B (https://orcid.org/0000-0002-2880-3847) * COMMENT: lw95, lower 95% percentile of Monte Carlo CO2 calculations (10,000 replicates)
+	Carbon dioxide [ppmv] (CO2) * PI: Chalk, Thomas B (https://orcid.org/0000-0002-2880-3847) * COMMENT: up95, upper 95% percentile of Monte Carlo CO2 calculations (10,000 replicates)
+License:	Creative Commons Attribution-NonCommercial-NoDerivs 3.0 Unported (CC-BY-NC-ND-3.0) (URI: https://creativecommons.org/licenses/by-nc-nd/3.0/)
+Size:	408 data points
+*/
+Age [ka BP]	SST [°C] (Sea Surface Temperature (SST)...)	G. ruber δ11B [‰ SRM] (d11B per mil deviation from S...)	G. ruber δ11B [‰ SRM] (d11B.er 1 sd from long term b...)	G. ruber Mg/Ca [mmol/mol] (Mg/Ca ratio of ruber, measure...)	pH (pH or surface water calculate...)	CO2 [ppmv] (CO2 calculated from seacarb p...)	CO2 [ppmv] (lw95, lower 95% percentile of...)	CO2 [ppmv] (up95, upper 95% percentile of...)
+1087.3	25.6	20.82	0.09	3.59	8.205	228	194	263
+1088.7	25.6	20.57	0.10	3.60	8.171	255	219	293
+1090.0	25.6	20.93	0.09	3.60	8.219	218	186	251
+1092.7	26.5	20.80	0.10	3.89	8.192	237	202	273
+1094.7	26.8	20.73	0.11	4.01	8.179	247	210	284
+1099.5	26.3	20.09	0.10	3.84	8.095	323	280	367
+1102.4	26.2	20.23	0.10	3.79	8.118	301	260	344
+1103.2	24.7	20.23	0.15	4.15	8.135	287	244	331
+1106.2	26.4	20.75	0.07	3.89	8.185	242	208	278
+1107.8	25.5	20.51	0.10	3.57	8.164	261	223	299
+1110.3	26.7	20.42	0.09	3.98	8.138	282	243	321
+1112.8	26.7	20.78	0.10	4.00	8.186	242	206	278
+1115.3	26.3	20.94	0.10	3.87	8.212	222	189	256
+1117.9	26.6	21.11	0.07	3.99	8.230	209	177	241
+1120.4	27.1	20.79	0.08	4.18	8.183	243	208	279
+1123.1	26.8	21.25	0.07	4.06	8.247	197	166	228
+1126.1	25.1	20.64	0.11	3.50	8.187	243	208	280
+1127.8	24.9	20.63	0.11	3.45	8.188	242	206	278
+1131.0	25.5	20.63	0.08	3.68	8.181	247	212	283
+1136.6	25.3	20.23	0.08	3.63	8.128	292	254	333
+1140.0	24.3	20.04	0.10	3.34	8.112	308	266	354
+1143.2	23.3	20.18	0.12	3.05	8.144	280	239	323
+1145.3	24.0	20.09	0.11	3.27	8.123	298	257	342
+1148.9	23.8	19.96	0.18	3.23	8.106	315	266	367
+1150.9	23.0	20.31	0.12	3.01	8.166	262	224	301
+1154.1	24.0	20.52	0.11	3.27	8.184	246	210	284
+1157.8	24.5	20.10	0.11	3.43	8.118	302	260	347
+1160.7	23.8	19.98	0.11	3.22	8.109	311	269	357
+1162.9	25.3	20.37	0.10	3.65	8.149	274	236	313
+1169.9	25.2	20.29	0.08	3.60	8.138	283	246	324
+1177.6	25.0	20.36	0.09	3.52	8.152	272	234	310
+1179.7	25.5	20.50	0.10	3.70	8.163	262	224	300
+1181.8	26.1	20.85	0.07	3.90	8.204	229	195	262
+1184.1	25.0	20.83	0.09	3.53	8.213	222	189	256
+1186.0	25.7	20.57	0.10	3.75	8.172	254	219	293
+1188.1	25.1	20.44	0.09	3.54	8.161	264	227	302
+1191.3	24.9	20.95	0.07	3.47	8.230	211	180	244
+1195.2	24.2	20.97	0.09	3.23	8.242	203	172	236
+1203.3	25.2	21.22	0.07	3.54	8.261	189	160	220
+1206.8	25.9	20.99	0.07	3.74	8.225	213	181	245
+1210.0	25.2	20.71	0.09	3.51	8.196	235	201	272
+1214.5	25.0	20.24	0.09	3.43	8.133	288	249	328
+1216.4	24.8	20.36	0.11	3.39	8.152	272	234	312
+1218.5	24.1	20.07	0.11	3.17	8.120	301	259	346
+1224.2	25.0	20.53	0.12	3.41	8.175	253	215	290
+1227.2	25.0	20.38	0.11	3.43	8.153	271	233	311
+1230.7	25.0	20.04	0.12	3.42	8.105	314	270	360
+1233.9	25.7	20.23	0.10	3.60	8.124	295	255	337
+1236.2	26.3	20.56	0.09	3.81	8.164	260	224	298
+1239.8	26.8	20.55	0.10	3.97	8.156	266	228	305
+1243.3	28.2	20.46	0.08	4.49	8.128	289	250	328

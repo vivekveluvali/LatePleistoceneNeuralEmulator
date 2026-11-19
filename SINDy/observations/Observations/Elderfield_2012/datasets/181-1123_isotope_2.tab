@@ -1,0 +1,66 @@
+/* DATA DESCRIPTION:
+Citation:	Elderfield, Henry; Ferretti, Patrizia; Greaves, Mervyn; Crowhurst, Simon J; McCave, I Nicholas; Hodell, David A; Piotrowski, Alexander M (2012): (Table S2) Mg/Ca, Fe/Ca and Mn/Ca ratios of ODP Site 181-1123 samples [dataset]. PANGAEA, https://doi.org/10.1594/PANGAEA.786180, 
+	In supplement to: Elderfield, H et al. (2012): Evolution of ocean temperature and ice volume through the Mid-Pleistocene Climate Transition. Science, 337(6095), 704-709, https://doi.org/10.1126/science.1221294
+Project(s):	Ocean Drilling Program (ODP) (URI: https://www-odp.tamu.edu:443/)
+Coverage:	MEDIAN LATITUDE: -41.785890 * MEDIAN LONGITUDE: -171.498990 * SOUTH-BOUND LATITUDE: -41.786000 * WEST-BOUND LONGITUDE: -171.499000 * NORTH-BOUND LATITUDE: -41.785780 * EAST-BOUND LONGITUDE: -171.498980
+	DATE/TIME START: 1998-09-14T23:55:00 * DATE/TIME END: 1998-09-24T10:00:00
+	MINIMUM DEPTH, sediment/rock: 39.33 m * MAXIMUM DEPTH, sediment/rock: 45.17 m
+Event(s):	181-1123B * LATITUDE: -41.786000 * LONGITUDE: -171.498980 * DATE/TIME START: 1998-09-14T23:55:00 * DATE/TIME END: 1998-09-19T09:55:00 * ELEVATION: -3289.8 m * PENETRATION: 489 m * RECOVERY: 451.4 m * LOCATION: South Pacific Ocean * CAMPAIGN: Leg181 * BASIS: Joides Resolution (URI: https://www-odp.tamu.edu:443/resolutn.html) * METHOD/DEVICE: Drilling/drill rig (DRILL) * COMMENT: 52 cores; 489 m cored; 0 m drilled; 92.3 % recovery
+	181-1123C * LATITUDE: -41.785780 * LONGITUDE: -171.499000 * DATE/TIME START: 1998-09-19T09:55:00 * DATE/TIME END: 1998-09-24T10:00:00 * ELEVATION: -3290.1 m * PENETRATION: 632.8 m * RECOVERY: 289.44 m * LOCATION: South Pacific Ocean * CAMPAIGN: Leg181 * BASIS: Joides Resolution (URI: https://www-odp.tamu.edu:443/resolutn.html) * METHOD/DEVICE: Drilling/drill rig (DRILL) * COMMENT: 33 cores; 309.9 m cored; 322.9 m drilled; 93.4 % recovery
+Comment:	DEPTH, sediment [m] is given in rmcd. AGE [ka BP] follows the LR04 timescale (Lisiecki and Raymo, 2005, doi:10.1029/2004PA001071). 21 pairs of duplicates from Table S1, of which 20 on same depths from working (W) and archive (A) halves.
+Parameter(s):	Event label (Event)
+	Sample code/label (Sample label) * PI: Elderfield, Henry (he101@esc.cam.ac.uk, http://www.esc.cam.ac.uk/people/academic-staff/harry-elderfield) * METHOD/DEVICE: DSDP/ODP/IODP sample designation (URI: hdl:10013/epic.27914.d001) * COMMENT: W = working, A = archive halve
+	DEPTH, sediment/rock [m] (Depth sed) * GEOCODE
+	AGE [ka BP] (Age) * GEOCODE
+	Magnesium/Calcium ratio [mmol/mol] (Mg/Ca) * PI: Elderfield, Henry (he101@esc.cam.ac.uk, http://www.esc.cam.ac.uk/people/academic-staff/harry-elderfield)
+	Iron/Calcium ratio [mmol/mol] (Fe/Ca) * PI: Elderfield, Henry (he101@esc.cam.ac.uk, http://www.esc.cam.ac.uk/people/academic-staff/harry-elderfield)
+	Manganese/Calcium ratio [mmol/mol] (Mn/Ca) * PI: Elderfield, Henry (he101@esc.cam.ac.uk, http://www.esc.cam.ac.uk/people/academic-staff/harry-elderfield)
+	Magnesium/Calcium ratio [mmol/mol] (Mg/Ca) * PI: Elderfield, Henry (he101@esc.cam.ac.uk, http://www.esc.cam.ac.uk/people/academic-staff/harry-elderfield) * COMMENT: mean (W + A)
+	Magnesium/Calcium ratio, standard deviation [±] (Mg/Ca std dev) * PI: Elderfield, Henry (he101@esc.cam.ac.uk, http://www.esc.cam.ac.uk/people/academic-staff/harry-elderfield) * COMMENT: mean (W + A)
+	Difference square (Diff**2) * PI: Elderfield, Henry (he101@esc.cam.ac.uk, http://www.esc.cam.ac.uk/people/academic-staff/harry-elderfield) * COMMENT: Mg/Ca mean (W + A)
+License:	Creative Commons Attribution 3.0 Unported (CC-BY-3.0) (URI: https://creativecommons.org/licenses/by/3.0/)
+Size:	221 data points
+*/
+Event	Sample label (W = working, A = archive halve)	Depth sed [m]	Age [ka BP]	Mg/Ca [mmol/mol]	Fe/Ca [mmol/mol]	Mn/Ca [mmol/mol]	Mg/Ca [mmol/mol] (mean (W + A))	Mg/Ca std dev [±] (mean (W + A))	Diff**2 (Mg/Ca mean (W + A))
+181-1123B	181-1123B-5H-2W,28-30	39.33	961.0	1.066		0.087			
+181-1123B	181-1123B-5H-2A,28-30	39.33	961.0	0.946	0.016	0.078	1.006	0.084	0.014
+181-1123B	181-1123B-5H-3W,54-56	41.09	1005.0	0.942	0.007	0.059			
+181-1123B	181-1123B-5H-3A,54-56	41.09	1005.0	0.878	0.013	0.050	0.910	0.046	0.004
+181-1123B	181-1123B-5H-3W,74-76	41.29	1008.7	0.987	0.009	0.067			
+181-1123B	181-1123B-5H-3A,74-76	41.29	1008.7	1.009	0.012	0.060	0.998	0.016	0.000
+181-1123B	181-1123B-5H-3W,90-92	41.45	1011.7	1.029	0.009	0.079			
+181-1123B	181-1123B-5H-3A,90-92	41.45	1011.7	0.951	0.017	0.068	0.990	0.055	0.006
+181-1123B	181-1123B-5H-3W,102-104	41.57	1013.9	1.053	0.008	0.079			
+181-1123B	181-1123B-5H-3A,102-104	41.57	1013.9	0.989		0.072	1.021	0.045	0.004
+181-1123B	181-1123B-5H-3W,130-132	41.85	1019.0	1.042	0.007	0.071			
+181-1123B	181-1123B-5H-3A,130-132	41.85	1019.0	0.987	0.004	0.071	1.014	0.039	0.003
+181-1123B	181-1123B-5H-4W,8-10	42.13	1026.8	1.120		0.061			
+181-1123B	181-1123B-5H-4A,8-10	42.13	1026.8	1.014		0.078	1.067	0.075	0.011
+181-1123B	181-1123B-5H-4W,12-14	42.17	1028.4	0.966	0.007	0.072			
+181-1123B	181-1123B-5H-4W,12-14	42.17	1028.4	1.064		0.113	1.015	0.070	0.010
+181-1123B	181-1123B-5H-4W,16-18	42.21	1030.0	1.041	0.026	0.076			
+181-1123B	181-1123B-5H-4A,16-18	42.21	1030.0	1.086	0.008	0.081	1.063	0.032	0.002
+181-1123B	181-1123B-5H-4W,92-94	42.97	1053.8	0.998	0.010	0.063			
+181-1123B	181-1123B-5H-4A,92-94	42.97	1053.8	0.969	0.006	0.070	0.983	0.021	0.001
+181-1123B	181-1123B-5H-4W,100-102	43.05	1056.1	0.968	0.013	0.062			
+181-1123B	181-1123B-5H-4A,100-102	43.05	1056.1	0.995	0.011	0.074	0.982	0.019	0.001
+181-1123B	181-1123B-5H-4W,108-110	43.13	1058.4	0.931	0.014	0.063			
+181-1123B	181-1123B-5H-4A,108-110	43.13	1058.4	0.876	0.021	0.053	0.904	0.039	0.003
+181-1123B	181-1123B-5H-4W,120-122	43.25	1061.8	1.058	0.010	0.051			
+181-1123B	181-1123B-5H-4A,120-122	43.25	1061.8	0.949	0.015	0.055	1.003	0.077	0.012
+181-1123B	181-1123B-5H-4W,140-142	43.45	1067.4	0.923	0.013	0.064			
+181-1123B	181-1123B-5H-4A,140-142	43.45	1067.4	1.020	0.029	0.072	0.971	0.068	0.009
+181-1123C	181-1123C-5H-3W,146-148	43.85	1078.8	1.078	0.010	0.110			
+181-1123C	181-1123C-5H-3A,146-148	43.85	1078.8	1.187	0.010	0.116	1.133	0.077	0.012
+181-1123C	181-1123C-5H-4W,8-10	43.97	1082.2	1.163		0.143			
+181-1123C	181-1123C-5H-4A,8-10	43.97	1082.2	1.211		0.135	1.187	0.034	0.002
+181-1123C	181-1123C-5H-4W,16-18	44.05	1084.4	1.125	0.018	0.130			
+181-1123C	181-1123C-5H-4A,16-18	44.05	1084.4	1.208		0.127	1.167	0.059	0.007
+181-1123C	181-1123C-5H-4W,52-54	44.41	1094.6	1.003		0.067			
+181-1123C	181-1123C-5H-4A,52-54	44.41	1094.6	1.109		0.067	1.056	0.075	0.011
+181-1123C	181-1123C-5H-4A,56-58	44.45	1095.7	1.084	0.010	0.069			
+181-1123C	181-1123C-5H-4W,56-58	44.45	1095.7	0.990	0.010	0.066	1.037	0.067	0.009
+181-1123C	181-1123C-5H-4A,88-90	44.77	1104.0	1.107	0.015	0.084			
+181-1123C	181-1123C-5H-4W,88-90	44.77	1104.0	1.024	0.014	0.084	1.066	0.059	0.007
+181-1123C	181-1123C-5H-4A,128-130	45.17	1122.4	1.010	0.009	0.089			
+181-1123C	181-1123C-5H-4W,128-130	45.17	1122.4	1.004	0.012	0.091	1.007	0.004	0.000
