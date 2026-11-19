@@ -217,6 +217,14 @@ def rollout_mc(cfg, params, paths, ic):
         roll[m] = sp.rollout_ensemble(emu, ic, cfg['window_size'], progress=False)
     return emu, roll
 
+def teacher_forced_rollout_mc(cfg, params, paths, ic):
+    emu = build_emu(cfg, params)
+    roll = np.empty((len(paths),) + ic.shape, dtype=np.float32)
+    for m, p in enumerate(tqdm(paths.values(), desc="rollouts (per model)")):
+        emu.load_weights(str(p['weights']))
+        roll[m] = sp.rollout_ensemble(emu, ic, cfg['window_size'], progress=False)
+    return emu, roll
+
 def mc_l2(cfg, full, roll, seeds):
     """
     L2 against the ground truth full (scaled), per model, seed window excluded, for the whole record and the test set:
@@ -252,18 +260,41 @@ def _darker(color, f=0.35):
 
 FORCING_COLORS = ['coral', 'seagreen', 'slateblue']
 
-def plot_mc_rollouts(cfg, roll, full, fullt, summary, boundary, title=None, show_model_means=False):
+MODEL_COLORS = plt.cm.tab10.colors           # one per model when plot_mc_rollouts colors by model (fixed order)
+IC_STYLES = ['-', ':', '--', '-.']           # one per IC when plot_mc_rollouts colors by model
+
+def _l2_title(ax, summary, name):
+    """panel title of plot_mc_rollouts: mean / variance over the models of the model-mean L2 (whole record, test set)"""
+    sw, st = summary[(name, 'whole')], summary[(name, 'test')]
+    ax.set_title(r"Mean model $\mathcal{L}_{2}$: " + f"$\\mu={sw['mean']:.3f}$, $\\sigma^2={sw['var']:.4f}$"
+                 + r"    (test set: " + f"$\\mu={st['mean']:.3f}$, $\\sigma^2={st['var']:.4f}$)")
+
+def plot_mc_rollouts(cfg, roll, full, fullt, summary, boundary, title=None, show_model_means=False, alpha=None,
+                     model_labels=None, ic_labels=None):
     """
     Monte Carlo rollout plot: every model x IC rollout faint, the ground truth (GP mean) dashed, one panel per state
     variable of the setup plus a forcing panel (none if the setup has no forcing).
     roll     - (n_models, n_ic, n_ages, n_features) from rollout_mc;  full, fullt - scaled ground truth and its ages
     summary  - from mc_l2 (panel titles);  boundary - test | train age, marked in every panel
     show_model_means - also draw each model's mean rollout over its ICs
+    alpha    - opacity of each rollout line; None -> set from the number of rollouts drawn
+    model_labels - given (one per model, e.g. its seed): color each model's rollouts in its own color, the same in
+               every panel, with its IC told apart by line style (labelled by ic_labels, default IC 0, 1, ...) and the
+               ground truth in black. For a few models (at most len(MODEL_COLORS)) and ICs (at most len(IC_STYLES))
     """
     names, F = rc.state_names(cfg), rc.n_forcing(cfg)
     S = len(names)
     n_models, n_ic = roll.shape[:2]
-    faint_alpha = float(np.clip(6 / (n_models * n_ic), 0.02, 0.3))   # fainter the more rollouts are drawn (0.02 for 3000)
+    by_model = model_labels is not None
+    if by_model:
+        if len(model_labels) != n_models:
+            raise ValueError(f"{len(model_labels)} model_labels for {n_models} models")
+        if n_models > len(MODEL_COLORS) or n_ic > len(IC_STYLES):
+            raise ValueError(f"coloring by model takes at most {len(MODEL_COLORS)} models and {len(IC_STYLES)} ICs "
+                             f"(got {n_models} x {n_ic}): thin roll first, e.g. roll[::5, ::50]")
+        ic_labels = ic_labels if ic_labels is not None else [f"IC {j}" for j in range(n_ic)]
+    faint_alpha = (float(np.clip(6 / (n_models * n_ic), 0.02, 0.3))   # fainter the more rollouts are drawn (0.02 for 3000)
+                   if alpha is None else alpha)
     n_panels = S + (1 if F else 0)
     with plt.rc_context({'font.size': 16}):
         fig, axs = plt.subplots(n_panels, 1, figsize=(22, 3.9 * n_panels), sharex=True, squeeze=False)
@@ -272,6 +303,16 @@ def plot_mc_rollouts(cfg, roll, full, fullt, summary, boundary, title=None, show
         for k, name in enumerate(names):
             c_truth, c_emu = sp.DEFAULT_COLORS['XYZ'.index(name)]   # the variable's own colors, also when Y or Z is dropped
             ax = axs[k]
+            if by_model:   # each model in its own color (the same in every panel), its ICs by line style
+                for m in range(n_models):
+                    for j in range(n_ic):
+                        ax.plot(fullt, roll[m, j, :, k], color=MODEL_COLORS[m], linestyle=IC_STYLES[j], lw=1.4,
+                                alpha=0.9 if alpha is None else alpha, zorder=1)
+                ax.plot(fullt, full[:, k], color='black', linestyle='dashed', lw=2.2, alpha=0.8, zorder=3)
+                _l2_title(ax, summary, name)
+                ax.set_ylabel(name)
+                ax.grid(True, alpha=0.3)
+                continue
             # all model x IC rollouts in one collection (thousands of lines, so not one plot call each)
             segs = np.stack([np.broadcast_to(fullt, roll.shape[2]), np.zeros(roll.shape[2])], axis=-1)
             segs = np.repeat(segs[None], n_models * n_ic, axis=0)
@@ -283,9 +324,7 @@ def plot_mc_rollouts(cfg, roll, full, fullt, summary, boundary, title=None, show
                 ax.plot([], [], color=_darker(c_emu), lw=2, label="each model's mean rollout")
             ax.plot(fullt, full[:, k], color=c_truth, linestyle='dashed', lw=2.2, zorder=3, label="GP mean (ground truth)")
 
-            sw, st = summary[(name, 'whole')], summary[(name, 'test')]
-            ax.set_title(r"Mean model $\mathcal{L}_{2}$: " + f"$\\mu={sw['mean']:.3f}$, $\\sigma^2={sw['var']:.4f}$"
-                         + r"    (test set: " + f"$\\mu={st['mean']:.3f}$, $\\sigma^2={st['var']:.4f}$)")
+            _l2_title(ax, summary, name)
             ax.set_ylabel(name)
             ax.grid(True, alpha=0.3)
             ax.legend(loc='upper left', fontsize=13, ncol=3)
@@ -313,5 +352,16 @@ def plot_mc_rollouts(cfg, roll, full, fullt, summary, boundary, title=None, show
             fig.suptitle(title, fontweight='bold')
         axs[-1].invert_xaxis()
         axs[-1].set_xlabel("time [kyr]")
+        if by_model:   # one legend for the figure: models by color, ICs by line style
+            from matplotlib.lines import Line2D
+            handles = ([Line2D([], [], color=MODEL_COLORS[m], lw=3, label=str(lab)) for m, lab in enumerate(model_labels)]
+                       + [Line2D([], [], color='dimgray', linestyle=IC_STYLES[j], lw=2, label=str(lab))
+                          for j, lab in enumerate(ic_labels)]
+                       + [Line2D([], [], color='black', linestyle='dashed', lw=2.2, label="GP mean (ground truth)")])
+            plt.tight_layout(rect=[0, 0.07, 1, 1])
+            fig.legend(handles=handles, loc='lower center', ncol=len(handles), fontsize=14, frameon=True,
+                       title="color: model   line style: initial condition")
+            plt.show()
+            return
         plt.tight_layout()
         plt.show()

@@ -172,6 +172,61 @@ def rollout(model, data, window_size, export_name=None, time=None, scaler=None, 
         export_rollout(emulator_test_data, export_name, time=time, scaler=scaler, state_names=names)
     return emulator_test_data
 
+def teacherforced_rollout(model, data, window_size, export_name=None, time=None, scaler=None, n_state=None):
+    '''
+        model         -   trained RolloutEmulator (or the bare CNN "brain")
+        data          -   data used for autoregressive rollout; should be scaled. Columns: the state variables
+                          first, then the forcings (run_config.state_cols)
+        window_size   -   size of window from which initial conditions are drawn
+        export_name   -   optional file name (no extension): if given, the rollout is also written to
+                          Data/EmulatorOutput/<export_name>.csv (see export_rollout)
+        time          -   optional ages [ka BP] of the rows of data, written as the age column of the csv
+        scaler        -   optional scaler data was scaled with; adds the rollout in physical units to the csv
+        n_state       -   number of state variables (the first columns of data); None -> model.n_state for a
+                          RolloutEmulator, else 3 (X, Y, Z)
+
+        return the autoregressive rollout trajectory from the initial conditions: the predicted states, with the
+        forcings copied from data at every step
+    '''
+    S, names = _state_dims(model, n_state)
+
+    window_seed = data[:window_size, :] # initial conditions
+    ed = list(window_seed)
+    preds = list(window_seed)
+
+    steps = data.shape[0]-window_size # number of steps rolled out after initial condition
+                                      # necessary to build off of data for the forcing record
+
+    # 3. Correct Loop
+    for t in tqdm(range(steps), desc="Test Forecasting"):
+
+        nxt_step = np.zeros(data.shape[1])
+        # Grab the window directly from the main array to ensure it's always up to date
+        #current_window = np.array(ed[-window_size:])
+        current_window = np.array(data[t:t+window_size, :]) # teacher forcing: use the true states, not the predicted ones
+
+        # Predict
+        Input = np.expand_dims(current_window, axis=0)
+
+        nxt_increments = np.asarray(predict_step(model, Input)).reshape(-1)
+
+        # increments added to the last state (autoregressive), or the states themselves for a RolloutEmulator
+        # with state_inputs=False (regression on the forcing)
+        if getattr(model, 'state_inputs', True):
+            nxt_step[0:S] = current_window[-1,0:S] + nxt_increments
+        else:
+            nxt_step[0:S] = nxt_increments
+
+        nxt_step[S:] = data[window_size+t,S:]   # forcing and state given
+
+        preds.append(nxt_step)
+        ed.append(nxt_step)
+
+    emulator_test_data = np.array(ed)
+    if export_name is not None:
+        export_rollout(emulator_test_data, export_name, time=time, scaler=scaler, state_names=names)
+    return emulator_test_data
+
 def rollout_ensemble(model, data, window_size, n_state=None, progress=True):
     '''
         rollout() for many initial conditions at once: every run is advanced one step per call to the model, so
