@@ -28,10 +28,10 @@ def _rename(c):                                   # 'X^2 Y' -> 'X*X*Y', 'X^3' ->
         parts += [v] * (int(p) if p else 1)
     return '*'.join(parts)
 
-def build_theta_SM90(X, Y, Z, R, degree=3):
-    """Polynomial library in the three states and a single forcing variable R.
+def build_theta_SM90(X, Y, Z, R=None, degree=3):
+    """Polynomial library in the three states and a single forcing variable R (R=None: states only).
     All inputs are 1-D arrays on the same time grid; returns the DataFrame and the list of its column names."""
-    variables = pd.DataFrame({'X': X, 'Y': Y, 'Z': Z, 'R': R})
+    variables = pd.DataFrame({'X': X, 'Y': Y, 'Z': Z, **({'R': R} if R is not None else {})})
     pf = PolynomialFeatures(degree=degree, include_bias=True)
     Theta = pd.DataFrame(pf.fit_transform(variables), columns=pf.get_feature_names_out(variables.columns))
     Theta.columns = [_rename(c) if c != '1' else '1' for c in Theta.columns]

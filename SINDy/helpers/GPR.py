@@ -59,18 +59,24 @@ def gpr_derivative(gpr, x_query, y):
     return y_std * (dk_dx @ alpha)
 
 @styled
-def sanity(series, window, tgrid, xlabel="Age [ka BP]", width=8, figsize_per_panel=2, ylim=None, yticks=True,
+def sanity(series, tgrid, window=None, xlabel="Age [ka BP]", width=8, figsize_per_panel=2, ylim=None, yticks=True,
            save_path=None, margins=None):
+    """GP mean ± 1 std on tgrid with the raw samples on top, one panel per entry of
+    series = {label: (x_raw, y_raw, mean, std)}, mean and std on tgrid.
+    window: (lo, hi) age range shown; None shows everything (all of tgrid and every raw sample)."""
     # Same layout as tools.plot_timeseries so the two figures line up side by side.
     n = len(series)
     fig, axes = plt.subplots(n, 1, sharex=True, figsize=(width, figsize_per_panel * n))
     if n == 1:
         axes = [axes]
 
-    grid_mask = (tgrid >= window[0]) & (tgrid <= window[1])
+    tgrid = np.asarray(tgrid)
+    lo, hi = window if window is not None else (-np.inf, np.inf)
+    grid_mask = (tgrid >= lo) & (tgrid <= hi)
     for i, (ax, (label, (x_raw, y_raw, mean, std))) in enumerate(zip(axes, series.items())):
         first = (i == 0)
-        raw_mask = (x_raw >= window[0]) & (x_raw <= window[1])
+        x_raw, y_raw, mean, std = (np.asarray(a) for a in (x_raw, y_raw, mean, std))
+        raw_mask = (x_raw >= lo) & (x_raw <= hi)
 
         ax.fill_between(tgrid[grid_mask], (mean - std)[grid_mask], (mean + std)[grid_mask],
                         color=GP_BAND, linewidth=0, label='GP mean ± 1 std' if first else None)
@@ -163,7 +169,7 @@ def draw_joint_samples(mu, cov, n, rng):
 
 
 @styled
-def plot_gp_spaghetti(samples, tgrid, data=None, n_show=30, tmax=800, labels=None, derivative=False, seed=0, color=None,
+def plot_gp_spaghetti(samples, tgrid, data=None, n_show=30, labels=None, derivative=False, seed=0, color=None,
                       invert_x=True, means=None, window=None, xlabel="Age [ka BP]", width=8, figsize_per_panel=2,
                       ylim=None, yticks=True, save_path=None, margins=None):
     """Spaghetti plot of GP draws, laid out like tools.plot_timeseries so the figures line up side by side.
@@ -172,13 +178,13 @@ def plot_gp_spaghetti(samples, tgrid, data=None, n_show=30, tmax=800, labels=Non
     means:   {name: GP mean on tgrid}; if given, the mean is drawn as a line and the proxy points are left out
     data:    {name: (age, value)} proxy records, drawn as crosses when means is not given
     n_show:  number of draws shown
-    window:  (lo, hi) age range shown; if None, everything up to tmax (kyr BP) is shown (tmax=None: full grid)
+    window:  (lo, hi) age range shown; None shows everything (all of tgrid and every proxy sample)
     labels:  optional {name: (ylabel, derivative_ylabel)};  derivative=True adds a second column with the xdot draws
     ylim:    one (lo, hi) for every panel, or a list with one per row (None entries stay automatic); first column only
     yticks:  False hides the y tick marks and numbers"""
     color = GP_DRAWS if color is None else color
     tgrid = np.asarray(tgrid)
-    lo, hi = window if window is not None else (-np.inf, tmax if tmax is not None else np.inf)
+    lo, hi = window if window is not None else (-np.inf, np.inf)
     in_range = lambda a: (a >= lo) & (a <= hi)
     mask = in_range(tgrid)
     t = tgrid[mask]

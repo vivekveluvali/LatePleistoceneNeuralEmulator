@@ -419,17 +419,24 @@ def styled(func):
         return result
     return wrapper
 
-# Fixed margins (fractions of the figure). Figures saved with the same width and margins have plot boxes
-# of exactly the same size, whether or not they show y labels, so they line up side by side in LaTeX.
-DEFAULT_MARGINS = dict(left=0.24, right=0.96, bottom=0.08, top=0.98, hspace=0.12)
+# Fixed margins. Figures saved with the same width and margins have plot boxes of exactly the same size,
+# whether or not they show y labels, so they line up side by side in LaTeX.
+# Left/right are fixed in inches (room for the y labels does not grow with the figure), so wide figures stay
+# centred; at width 4 in they equal the old fractions 0.24 / 0.96. Bottom/top/hspace are fractions.
+DEFAULT_MARGIN_INCHES = dict(left=0.96, right=0.16)
+DEFAULT_MARGINS = dict(bottom=0.08, top=0.98, hspace=0.12)
 
 def finish_layout(fig, margins=None):
     """margins=None: tight_layout (boxes shrink to fit their labels).
-    margins=True: DEFAULT_MARGINS;  margins=dict(...): DEFAULT_MARGINS with these values replaced."""
+    margins=True: DEFAULT_MARGIN_INCHES + DEFAULT_MARGINS;
+    margins=dict(...): those defaults with these values replaced (given as fractions of the figure)."""
     if margins is None or margins is False:
         fig.tight_layout()
     else:
-        fig.subplots_adjust(**{**DEFAULT_MARGINS, **(margins if isinstance(margins, dict) else {})})
+        width = fig.get_figwidth()
+        defaults = dict(left=DEFAULT_MARGIN_INCHES['left'] / width,
+                        right=1 - DEFAULT_MARGIN_INCHES['right'] / width, **DEFAULT_MARGINS)
+        fig.subplots_adjust(**{**defaults, **(margins if isinstance(margins, dict) else {})})
 
 def save_figure(fig, save_path, dpi=300):
     """Save at high resolution; the figure size is kept as is so side-by-side figures still line up.
@@ -482,3 +489,73 @@ def plot_timeseries(x, ys, ys_true=None, x_true=None, colors=None, labels=None, 
     save_figure(fig, save_path)
     return fig, axes
 
+
+def _term_tex(term, names=None):
+    r"""'Y*Y*Z' -> '$Y^2 Z$'; names maps variable names to LaTeX (e.g. {'Esi': r'\Pi_P'})."""
+    if term == '1':
+        return '$1$'
+    names = names or {}
+    factors = term.split('*')
+    parts = []
+    for v in dict.fromkeys(factors):                                   # keep order, count powers
+        n = factors.count(v)
+        tex = names.get(v, v)
+        parts.append(tex + (f'^{n}' if n > 1 else ''))
+    return '$' + r'\,'.join(parts) + '$'
+
+
+@styled
+def plot_term_contributions(models, Theta, dots=None, names=None, absolute=False, logy=False, whis=(0, 100), ylabels=None, ylim=None,
+                            yticklabels=True, row=False, width=4, figsize_per_panel=2, save_path=None, margins=None):
+    r"""Box plots of each term's contribution c_k * theta_k(t) over time, one panel per equation.
+    models: dict eq -> model Series (term -> coefficient), e.g. {'X': Xmodels[4], ...}
+    Theta:  library the models are evaluated on (DataFrame, columns = term names)
+    dots:   optional dict eq -> derivative; drawn as a grey reference box first
+    names:  LaTeX names for variables in the term labels, e.g. {'Esi': r'\Pi_P', 'Eco': r'\Pi_c'}
+    absolute=True plots |c_k * theta_k(t)| (size of each term's contribution; logy=True for a log axis).
+    row=True puts the panels side by side, each 20% taller than in a column (width = whole figure width).
+    Box = 25-75th percentile, line = median, whiskers = whis percentiles (default min / max)."""
+    n = len(models)
+    if row:
+        fig, axes = plt.subplots(1, n, figsize=(width, 1.2 * figsize_per_panel))
+    else:
+        fig, axes = plt.subplots(n, 1, figsize=(width, figsize_per_panel * n))
+    axes = np.atleast_1d(axes)
+    box = dict(whis=whis, showfliers=False, patch_artist=True, widths=0.6,
+               medianprops=dict(color='black', lw=1.2),
+               whiskerprops=dict(lw=0.8), capprops=dict(lw=0.8))
+
+    for i, (ax, (eq, w)) in enumerate(zip(axes, models.items())):
+        Th = Theta[eq] if isinstance(Theta, dict) else Theta      # per-equation library, or one shared library
+        data = [w[t] * Th[t].to_numpy() for t in w.index]
+        labels = [_term_tex(t, names) for t in w.index]
+        colors = ['#f2b8b5'] * len(data)                                 # GP_BAND: identified terms
+        if dots is not None:
+            data = [np.asarray(dots[eq])] + data
+            labels = [rf'$\dot{{{eq}}}$'] + labels
+            colors = ['0.85'] + colors                                    # grey: reference derivative
+        if absolute:
+            data = [np.abs(d) for d in data]
+        bp = ax.boxplot(data, positions=np.arange(1, len(data) + 1), **box)
+        for patch, c in zip(bp['boxes'], colors):
+            patch.set(facecolor=c, edgecolor='black', lw=0.8)
+        if logy:
+            ax.set_yscale('log')
+        if not absolute:
+            ax.axhline(0, color='0.5', lw=0.6, zorder=0)
+        if dots is not None:
+            ax.axvline(1.5, color='0.5', lw=0.6, ls='--')
+        ax.set_xticks(np.arange(1, len(data) + 1))
+        ax.set_xticklabels(labels)
+        ax.grid(axis='x', visible=False)
+        if ylabels and yticklabels:
+            ax.set_ylabel(ylabels[i])
+        if ylim is not None:
+            lim = ylim[i] if any(l is None or np.ndim(l) > 0 for l in ylim) else ylim
+            if lim is not None:
+                ax.set_ylim(lim)
+        if not yticklabels:
+            ax.tick_params(axis='y', which='both', labelleft=False)
+    finish_layout(fig, margins)
+    save_figure(fig, save_path)
+    return fig, axes
